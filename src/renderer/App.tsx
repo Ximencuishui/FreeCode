@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AppInfo } from '@shared/types/electron';
+import type { AppInfo } from '@shared/types/app';
 
 /**
  * WP-01 最小骨架：三栏布局占位（对话/预览/导出将在后续工作包实现）。
