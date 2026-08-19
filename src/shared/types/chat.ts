@@ -30,6 +30,7 @@ export interface SignalEvent {
   message: string;
   suggestions?: string[];
   code?: string;
+  autoAction?: string;
   timestamp: string;
 }
 

@@ -20,10 +20,22 @@ export interface DSHResult {
   exitCode: number;
 }
 
-/** 解析 dsh 启动命令：环境变量 FREECODER_DSH_COMMAND 优先（可指向打包后的运行时），默认 PATH 中的 dsh */
+/**
+ * 解析 dsh 启动命令，优先级：
+ * 1. FREECODER_DSH_COMMAND 环境变量（支持 JSON 数组，如 ["node","C:/.../bin.js"]；也兼容空格分隔）
+ * 2. 默认 PATH 中的 dsh（POSIX / 已配置 PATH 的环境）
+ */
 export function resolveDshCommand(): string[] {
   const envCmd = process.env.FREECODER_DSH_COMMAND;
   if (envCmd?.trim()) {
+    try {
+      const parsed = JSON.parse(envCmd);
+      if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {
+        return parsed as string[];
+      }
+    } catch {
+      /* 不是 JSON，退化到空格分隔 */
+    }
     return envCmd.trim().split(/\s+/);
   }
   return ['dsh'];
