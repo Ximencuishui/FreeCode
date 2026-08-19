@@ -1,0 +1,55 @@
+{
+  "name": "freecoder",
+  "version": "0.1.0",
+  "description": "FreeCoder - 把想法变成可用的软件，像跟朋友聊天一样简单",
+  "private": true,
+  "license": "MIT",
+  "author": "FreeCoder Team",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "pnpm typecheck && vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.main.json && tsc --noEmit -p tsconfig.renderer.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "package": "pnpm build && electron-builder",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,css,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9",
+    "@types/node": "^24",
+    "@types/react": "^18.3",
+    "@types/react-dom": "^18.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.4",
+    "electron": "^43",
+    "electron-builder": "^26",
+    "eslint": "^9",
+    "eslint-plugin-react-hooks": "^5",
+    "eslint-plugin-react-refresh": "^0.4",
+    "globals": "^16",
+    "husky": "^9",
+    "lint-staged": "^17",
+    "postcss": "^8.4",
+    "prettier": "^3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8",
+    "vite": "^6.4.3",
+    "vite-plugin-electron": "^1.1.1"
+  }
+}
