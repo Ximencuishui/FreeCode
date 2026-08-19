@@ -6,11 +6,12 @@ import { registerExportIpc } from './export';
 import { registerSettingsIpc } from './settings';
 import { registerApiKeyIpc } from './apikey';
 import type { StorageManager } from '../storage/types';
+import type { DSHService } from '../dsh/service';
 
 /** 注册全部 IPC 处理器（21 个通道，见 API 文档第七章接口清单） */
-export function registerIpcHandlers(storage: StorageManager): void {
+export function registerIpcHandlers(storage: StorageManager, dsh: DSHService): void {
   registerAppIpc();
-  registerChatIpc(storage);
+  registerChatIpc(storage, dsh);
   registerProjectIpc(storage);
   registerPreviewIpc();
   registerExportIpc();

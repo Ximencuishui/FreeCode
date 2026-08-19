@@ -6,13 +6,14 @@ import type {
   ChatHistoryResult,
 } from '../../shared/types/chat';
 import type { StorageManager } from '../storage/types';
+import type { DSHService } from '../dsh/service';
 import { handleIpc, IpcError } from './helpers';
 
 /**
  * 对话域 IPC（API 文档 4.1）。
- * 对话历史基于本地存储；消息发送业务（AI 助理对话流）在 WP-10 落地。
+ * 对话历史基于本地存储；AI 助理对话流（调用 DSH）在 WP-10 落地。
  */
-export function registerChatIpc(storage: StorageManager): void {
+export function registerChatIpc(storage: StorageManager, dsh: DSHService): void {
   handleIpc<ChatSendParams, ChatSendResult>(IpcChannels.chatSend, async (_event, params) => {
     if (!params?.projectId?.trim()) {
       throw new IpcError('INVALID_PARAMS', '项目 ID 不能为空');
@@ -24,6 +25,8 @@ export function registerChatIpc(storage: StorageManager): void {
     if (!project) {
       throw new IpcError('PROJECT_NOT_FOUND', '项目不存在');
     }
+    // dsh 服务已注入，对话流编排在 WP-10 实现
+    void dsh;
     throw new IpcError('NOT_IMPLEMENTED', 'AI 对话将在后续版本提供');
   });
 

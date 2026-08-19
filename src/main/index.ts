@@ -4,13 +4,17 @@ import { createAppMenu } from './menu';
 import { registerIpcHandlers } from './ipc';
 import { FileStorageManager, getFreeCoderDir } from './storage';
 import { createSafeStorageEncryptor } from './security/electronEncryptor';
+import { DSHService } from './dsh/service';
 
 app.whenReady().then(async () => {
   // 初始化本地存储（~/.freecoder/，API Key 使用 safeStorage 加密）
   const storage = new FileStorageManager(getFreeCoderDir(), createSafeStorageEncryptor());
   await storage.init();
 
-  registerIpcHandlers(storage);
+  // DSH 服务：按需启动 headless 子进程执行任务（命令可经 FREECODER_DSH_COMMAND 覆盖）
+  const dsh = new DSHService();
+
+  registerIpcHandlers(storage, dsh);
   createAppMenu();
   createMainWindow();
 
