@@ -5,24 +5,33 @@ import type {
   ApiKeyValidateParams,
   ApiKeyValidateResult,
 } from '../../shared/types/settings';
+import type { StorageManager } from '../storage/types';
 import { handleIpc, IpcError } from './helpers';
 
-/**
- * API Key 域 IPC（API 文档 4.6）。
- * WP-03 桩实现：加密存储与真实校验在 WP-05/WP-06（安全模块、设置管理）落地。
- */
-export function registerApiKeyIpc(): void {
-  handleIpc<ApiKeySaveParams, ApiKeySaveResult>(IpcChannels.apiKeySave, (_event, params) => {
+/** DeepSeek API Key 格式（宽松校验，真实有效性验证在 WP-08 通过 DSH 联调落地） */
+const API_KEY_PATTERN = /^sk-[A-Za-z0-9_-]{16,}$/;
+
+/** API Key 域 IPC（API 文档 4.6），safeStorage 加密存储 */
+export function registerApiKeyIpc(storage: StorageManager): void {
+  handleIpc<ApiKeySaveParams, ApiKeySaveResult>(IpcChannels.apiKeySave, async (_event, params) => {
     if (!params?.key?.trim()) {
       throw new IpcError('INVALID_PARAMS', 'API Key 不能为空');
     }
-    throw new IpcError('NOT_IMPLEMENTED', 'API Key 保存将在后续版本提供');
+    await storage.saveApiKey(params.key.trim());
+    return { success: true };
   });
 
-  handleIpc<ApiKeyValidateParams, ApiKeyValidateResult>(IpcChannels.apiKeyValidate, (_event, params) => {
-    if (!params?.key?.trim()) {
-      throw new IpcError('INVALID_PARAMS', 'API Key 不能为空');
-    }
-    throw new IpcError('NOT_IMPLEMENTED', 'API Key 验证将在后续版本提供');
-  });
+  handleIpc<ApiKeyValidateParams, ApiKeyValidateResult>(
+    IpcChannels.apiKeyValidate,
+    async (_event, params) => {
+      if (!params?.key?.trim()) {
+        throw new IpcError('INVALID_PARAMS', 'API Key 不能为空');
+      }
+      const key = params.key.trim();
+      if (!API_KEY_PATTERN.test(key)) {
+        return { valid: false, message: 'API Key 格式不正确' };
+      }
+      return { valid: true };
+    },
+  );
 }

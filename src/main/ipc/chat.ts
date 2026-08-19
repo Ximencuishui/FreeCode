@@ -5,27 +5,44 @@ import type {
   ChatHistoryParams,
   ChatHistoryResult,
 } from '../../shared/types/chat';
+import type { StorageManager } from '../storage/types';
 import { handleIpc, IpcError } from './helpers';
 
 /**
  * 对话域 IPC（API 文档 4.1）。
- * WP-03 桩实现：参数校验通过后返回 NOT_IMPLEMENTED，业务逻辑在 WP-10（AI 助理对话流）落地。
+ * 对话历史基于本地存储；消息发送业务（AI 助理对话流）在 WP-10 落地。
  */
-export function registerChatIpc(): void {
-  handleIpc<ChatSendParams, ChatSendResult>(IpcChannels.chatSend, (_event, params) => {
+export function registerChatIpc(storage: StorageManager): void {
+  handleIpc<ChatSendParams, ChatSendResult>(IpcChannels.chatSend, async (_event, params) => {
     if (!params?.projectId?.trim()) {
       throw new IpcError('INVALID_PARAMS', '项目 ID 不能为空');
     }
     if (!params?.message?.trim()) {
       throw new IpcError('INVALID_PARAMS', '消息不能为空');
     }
-    throw new IpcError('NOT_IMPLEMENTED', '对话功能将在后续版本提供');
+    const project = await storage.getProject(params.projectId);
+    if (!project) {
+      throw new IpcError('PROJECT_NOT_FOUND', '项目不存在');
+    }
+    throw new IpcError('NOT_IMPLEMENTED', 'AI 对话将在后续版本提供');
   });
 
-  handleIpc<ChatHistoryParams, ChatHistoryResult>(IpcChannels.chatHistory, (_event, params) => {
+  handleIpc<ChatHistoryParams, ChatHistoryResult>(IpcChannels.chatHistory, async (_event, params) => {
     if (!params?.projectId?.trim()) {
       throw new IpcError('INVALID_PARAMS', '项目 ID 不能为空');
     }
-    throw new IpcError('NOT_IMPLEMENTED', '对话历史将在后续版本提供');
+    const project = await storage.getProject(params.projectId);
+    if (!project) {
+      throw new IpcError('PROJECT_NOT_FOUND', '项目不存在');
+    }
+    const messages = await storage.getChatHistory(params.projectId, params.limit ?? 50);
+    return {
+      messages: messages.map((m) => ({
+        id: m.id,
+        role: m.role === 'signal' ? 'system' : m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+      })),
+    };
   });
 }
