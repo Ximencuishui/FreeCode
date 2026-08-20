@@ -43,6 +43,12 @@ test.afterAll(async () => {
 });
 
 test('E2E-001 完整用户旅程：从想法到预览', async () => {
+  // 0. 首次启动：自动弹出大模型 API 配置引导（与 DeepSeek Harness 一致）→ 填入并保存
+  await expect(page.locator('text=欢迎使用 FreeCoder')).toBeVisible();
+  await page.fill('input[type="password"]', 'sk-test1234567890abcdef');
+  await page.click('button:has-text("保存并开始")');
+  await expect(page.locator('input[type="password"]')).toBeHidden({ timeout: 10_000 });
+
   // 1. 创建项目
   await expect(page.locator('input[placeholder="例如：我的记账本"]')).toBeVisible();
   await page.fill('input[placeholder="例如：我的记账本"]', '测试记账本');

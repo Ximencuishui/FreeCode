@@ -16,6 +16,9 @@ export function registerSettingsIpc(storage: StorageManager): void {
     const apiKey = await storage.loadApiKey();
     const settings: AppSettings = {
       apiKeyConfigured: apiKey !== null,
+      provider: s.provider ?? 'deepseek',
+      baseUrl: s.baseUrl,
+      model: s.model,
       projectsPath: s.projectsPath,
       language: s.language,
       darkMode: s.darkMode,

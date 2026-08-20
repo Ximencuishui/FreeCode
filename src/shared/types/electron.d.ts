@@ -67,6 +67,8 @@ declare global {
       app: {
         getInfo: () => Promise<AppInfo>;
         quit: () => void;
+        /** 用系统浏览器打开外部链接（主进程白名单仅允许 http/https） */
+        openExternal: (url: string) => Promise<{ success: boolean }>;
       };
     };
   }

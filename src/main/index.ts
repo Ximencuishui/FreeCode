@@ -1,6 +1,6 @@
 import { app, BrowserWindow } from 'electron';
-import { createMainWindow } from './window';
-import { createAppMenu } from './menu';
+import { createMainWindow, registerClipboardShortcuts } from './window';
+import { installAppMenu } from './menu';
 import { registerIpcHandlers } from './ipc';
 import { FileStorageManager, getFreeCoderDir } from './storage';
 import { createSafeStorageEncryptor } from './security/electronEncryptor';
@@ -13,11 +13,25 @@ app.whenReady().then(async () => {
   await storage.init();
 
   // DSH 服务：按需启动 headless 子进程执行任务（命令可经 FREECODER_DSH_COMMAND 覆盖）
-  const dsh = new DSHService();
+  // 大模型凭据以环境变量注入子进程（provider 的 apiKeyEnv 字段），key 来自本地加密存储
+  const dsh = new DSHService({
+    apiKeyProvider: async () => {
+      const key = await storage.loadApiKey();
+      if (!key) return null;
+      const settings = await storage.getSettings();
+      return {
+        apiKey: key,
+        provider: settings.provider === 'openai-compatible' ? 'openai-compatible' : 'deepseek',
+        baseUrl: settings.baseUrl,
+        model: settings.model,
+      };
+    },
+  });
   const developer = new Developer({ storage, dsh });
 
   registerIpcHandlers(storage, dsh, developer);
-  createAppMenu();
+  installAppMenu();
+  registerClipboardShortcuts(); // 在创建窗口前注册，覆盖主窗口与 webview
   createMainWindow();
 
   app.on('activate', () => {

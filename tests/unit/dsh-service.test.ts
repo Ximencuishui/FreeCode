@@ -31,4 +31,42 @@ describe('DSH 服务层', () => {
     const result = await service.runTask(os.tmpdir(), '失败任务');
     expect(result.exitCode).not.toBe(0);
   });
+
+  it('runTask：deepseek 注入 DEEPSEEK_API_KEY，且输出中的 key 被脱敏', async () => {
+    const service = new DSHService({
+      command: [process.execPath, FAKE_DSH, '--profile', 'headless'],
+      apiKeyProvider: async () => ({ apiKey: 'sk-a1b2c3d4e5f6g7h8i9j0', provider: 'deepseek' }),
+    });
+    const result = await service.runTask(os.tmpdir(), 'env-check');
+    expect(result.exitCode).toBe(0);
+    expect(result.reply).toContain('DEEPSEEK_API_KEY');
+    expect(result.reply).not.toContain('sk-a1b2c3d4e5f6g7h8i9j0');
+    expect(result.reply).toContain('[API_KEY_REDACTED]');
+  });
+
+  it('runTask：openai-compatible 注入 OPENAI_* 环境变量', async () => {
+    const service = new DSHService({
+      command: [process.execPath, FAKE_DSH, '--profile', 'headless'],
+      apiKeyProvider: async () => ({
+        apiKey: 'sk-openai-key-12345678',
+        provider: 'openai-compatible',
+        baseUrl: 'https://api.example.com/v1',
+        model: 'gpt-4o-mini',
+      }),
+    });
+    const result = await service.runTask(os.tmpdir(), 'env-check');
+    expect(result.exitCode).toBe(0);
+    expect(result.reply).toContain('OPENAI_API_KEY');
+    expect(result.reply).toContain('https://api.example.com/v1');
+    expect(result.reply).not.toContain('sk-openai-key-12345678');
+  });
+
+  it('runTask：无凭据时不注入环境变量', async () => {
+    const service = new DSHService({
+      command: [process.execPath, FAKE_DSH, '--profile', 'headless'],
+      apiKeyProvider: async () => null,
+    });
+    const result = await service.runTask(os.tmpdir(), 'env-check');
+    expect(result.reply).toContain('"DEEPSEEK_API_KEY":null');
+  });
 });

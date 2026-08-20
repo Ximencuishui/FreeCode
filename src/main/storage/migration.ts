@@ -8,6 +8,7 @@ export function defaultSettings(): StoredSettings {
     language: 'zh-CN',
     darkMode: false,
     telemetryEnabled: false,
+    provider: 'deepseek',
     preview: {
       autoOpen: true,
       portRange: [3000, 3010],
@@ -34,6 +35,8 @@ export function migrateSettings(raw: unknown): StoredSettings {
     ...s,
     version: '1.0',
     telemetryEnabled: false,
+    // 规范化 provider 取值，防止旧数据/手改数据写入非法值
+    provider: s.provider === 'openai-compatible' ? 'openai-compatible' : 'deepseek',
     preview: {
       ...base.preview,
       ...(s.preview ?? {}),

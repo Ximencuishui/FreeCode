@@ -65,7 +65,15 @@ export default function PreviewContainer() {
           setStatus('running');
           setError('');
         } else {
-          setError(r.error ?? '预览启动失败');
+          // 运行时 error 可能是 FreeCoderError 对象（类型标注为 string，属历史类型缺口）
+          const raw = r.error as unknown;
+          const message =
+            typeof raw === 'string'
+              ? raw
+              : raw && typeof raw === 'object' && 'message' in raw
+                ? String((raw as { message: unknown }).message)
+                : '预览启动失败';
+          setError(message);
         }
       })
       .catch((err) => {

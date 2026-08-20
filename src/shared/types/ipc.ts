@@ -1,6 +1,6 @@
 /**
  * IPC 通道名常量与统一错误契约。
- * 依据《FreeCoder API 接口设计文档》v1.0 定义（21 个通道、错误码体系）。
+ * 依据《FreeCoder API 接口设计文档》v1.0 定义（23 个通道、错误码体系）。
  */
 
 /** 全部 IPC 通道（渲染进程 ↔ 主进程） */
@@ -34,6 +34,7 @@ export const IpcChannels = {
   // 应用
   appInfo: 'app:info',
   appQuit: 'app:quit',
+  appOpenExternal: 'app:open-external',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

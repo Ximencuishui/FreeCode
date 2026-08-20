@@ -13,6 +13,12 @@ export interface StoredSettings {
   language: 'zh-CN' | 'en-US';
   darkMode: boolean;
   telemetryEnabled: false;
+  /** 大模型提供商（默认 DeepSeek 官方） */
+  provider: 'deepseek' | 'openai-compatible';
+  /** 自定义接口 Base URL（如 https://api.deepseek.com） */
+  baseUrl?: string;
+  /** 模型名（如 deepseek-chat） */
+  model?: string;
   preview: {
     autoOpen: boolean;
     portRange: [number, number];

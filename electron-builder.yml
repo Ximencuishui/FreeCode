@@ -9,6 +9,13 @@ files:
   - dist/**/*
   - package.json
 
+# 应用图标（窗口/任务栏）与 webview 检查器 preload，打包后位于 resources/ 下
+extraResources:
+  - from: resources/icons/icon.png
+    to: icons/icon.png
+  - from: resources/preview/inspector.js
+    to: preview/inspector.js
+
 # DSH / Node 运行时内嵌（WP-08 集成后启用）
 # extraResources:
 #   - from: resources/node
@@ -20,7 +27,7 @@ win:
   target:
     - target: nsis
     - target: portable
-  # icon: resources/icons/icon.ico   # 待提供图标（当前使用默认）
+  icon: resources/icons/icon.ico
 
 nsis:
   oneClick: false
@@ -28,7 +35,7 @@ nsis:
 
 mac:
   category: public.app-category.developer-tools
-  # icon: resources/icons/icon.icns   # 待提供图标
+  icon: resources/icons/icon.png   # electron-builder 自动转为 icns
   target:
     - dmg
     - zip
@@ -37,4 +44,4 @@ linux:
   target:
     - AppImage
     - deb
-  # icon: resources/icons/icon.png   # 待提供图标
+  icon: resources/icons/icon.png

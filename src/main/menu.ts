@@ -1,26 +1,20 @@
-import { Menu, shell, type MenuItemConstructorOptions } from 'electron';
+import { Menu, type MenuItemConstructorOptions } from 'electron';
 
-/** 创建应用菜单（后续版本按需扩展业务菜单） */
-export function createAppMenu(): void {
-  const isMac = process.platform === 'darwin';
-
-  const template: MenuItemConstructorOptions[] = [
-    ...(isMac ? [{ role: 'appMenu' } as MenuItemConstructorOptions] : []),
-    { role: 'fileMenu' },
-    { role: 'editMenu' },
-    { role: 'viewMenu' },
-    { role: 'windowMenu' },
-    {
-      label: '帮助',
-      submenu: [
-        {
-          label: '项目主页',
-          click: () => void shell.openExternal('https://github.com/deepseek-ai/deepseek-harness'),
-        },
-        { role: 'about' },
-      ],
-    },
-  ];
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+/**
+ * 安装应用菜单。
+ * - Windows / Linux：完全移除菜单栏（与 DeepSeek Harness 等现代应用一致）。
+ *   剪贴板快捷键（Ctrl+C/X/V/A）在 window.ts 的 before-input-event 中恢复。
+ * - macOS：保留系统标准菜单（App / 编辑 / 窗口），符合平台惯例且提供 Cmd+C/V 等快捷键。
+ */
+export function installAppMenu(): void {
+  if (process.platform === 'darwin') {
+    const template: MenuItemConstructorOptions[] = [
+      { role: 'appMenu' },
+      { role: 'editMenu' },
+      { role: 'windowMenu' },
+    ];
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+    return;
+  }
+  Menu.setApplicationMenu(null);
 }

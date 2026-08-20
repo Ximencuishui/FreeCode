@@ -78,7 +78,7 @@ export class DSHProcessManager extends EventEmitter {
     this.child.stdin.write(`${line}\n`);
   }
 
-  /** 优雅停止：发送终止信号并等待退出 */
+  /** 优雅停止：发送终止信号并等待退出；5 秒未退出则强制结束（避免挂起） */
   stop(): Promise<void> {
     const child = this.child;
     if (!child) {
@@ -88,8 +88,23 @@ export class DSHProcessManager extends EventEmitter {
     this.manualStop = true;
     this.setStatus('stopping');
     return new Promise((resolve) => {
+      let settled = false;
+      const killTimer = setTimeout(() => {
+        // SIGTERM 未生效：升级为强制结束（Windows 无 SIGKILL，kill() 即终止）
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          try {
+            child.kill();
+          } catch {
+            /* 进程已退出 */
+          }
+        }
+      }, 5000);
       const onExit = () => {
-        child.off('exit', onExit);
+        if (settled) return;
+        settled = true;
+        clearTimeout(killTimer);
         this.setStatus('stopped');
         resolve();
       };
@@ -99,7 +114,11 @@ export class DSHProcessManager extends EventEmitter {
         child.stdin.end();
         child.kill('SIGTERM');
       } catch {
-        child.kill();
+        try {
+          child.kill();
+        } catch {
+          /* 进程已退出 */
+        }
       }
     });
   }

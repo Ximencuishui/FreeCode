@@ -11,7 +11,7 @@ function subscribe<T>(channel: string, callback: (data: T) => void): () => void 
 }
 
 /**
- * 暴露给渲染进程的安全 API（白名单，21 个通道）。
+ * 暴露给渲染进程的安全 API（白名单，23 个通道）。
  * 类型见 src/shared/types/electron.d.ts（与 API 接口设计文档一致）。
  */
 const electronApi: Window['electron'] = {
@@ -50,6 +50,7 @@ const electronApi: Window['electron'] = {
   app: {
     getInfo: () => ipcRenderer.invoke(IpcChannels.appInfo),
     quit: () => ipcRenderer.send(IpcChannels.appQuit),
+    openExternal: (url) => ipcRenderer.invoke(IpcChannels.appOpenExternal, { url }),
   },
 };
 

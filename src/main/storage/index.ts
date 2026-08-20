@@ -336,7 +336,12 @@ export class FileStorageManager implements StorageManager {
   // ========== API Key 管理 ==========
   async saveApiKey(key: string): Promise<void> {
     const encrypted = this.encryptor.encrypt(key);
-    await fs.writeFile(this.apiKeyPath(), encrypted, 'utf-8');
+    // 原子写 + POSIX 收紧权限（0600），避免写一半损坏或同用户可读
+    const file = this.apiKeyPath();
+    const tmp = `${file}.tmp`;
+    await fs.writeFile(tmp, encrypted, 'utf-8');
+    await fs.rename(tmp, file);
+    await fs.chmod(file, 0o600).catch(() => undefined);
   }
 
   async loadApiKey(): Promise<string | null> {

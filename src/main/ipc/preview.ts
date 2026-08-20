@@ -101,7 +101,10 @@ export function registerPreviewIpc(storage: StorageManager): void {
   );
 }
 
-/** webview 元素检查器 preload 路径（随应用分发） */
+/** webview 元素检查器 preload 路径（随应用分发，打包后位于 resources/preview/） */
 function getInspectorPath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'preview', 'inspector.js');
+  }
   return path.join(app.getAppPath(), 'resources', 'preview', 'inspector.js');
 }

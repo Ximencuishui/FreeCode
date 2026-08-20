@@ -6,6 +6,7 @@ export default function Sidebar() {
   const currentView = useUiStore((s) => s.currentView);
   const setView = useUiStore((s) => s.setView);
   const openExport = useExportStore((s) => s.open);
+  const openSettings = useUiStore((s) => s.openSettings);
 
   const items = [
     { key: 'chat', icon: '💬', label: '对话' },
@@ -40,7 +41,16 @@ export default function Sidebar() {
           <span className="text-lg leading-none">📦</span>
           <span className="mt-0.5">导出</span>
         </button>
-        <span title="设置">⚙️</span>
+        <button
+          type="button"
+          onClick={openSettings}
+          title="设置（大模型 API）"
+          aria-label="设置"
+          className="flex h-11 w-11 flex-col items-center justify-center rounded-lg text-xs transition-colors hover:bg-slate-100"
+        >
+          <span className="text-lg leading-none">⚙️</span>
+          <span className="mt-0.5">设置</span>
+        </button>
       </div>
     </nav>
   );

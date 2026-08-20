@@ -26,6 +26,19 @@ if (args.includes('--hang')) {
   return;
 }
 
+// 环境变量回显（用于验证 API Key 注入与脱敏）
+if (task.includes('env-check')) {
+  console.log(
+    JSON.stringify({
+      DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY || null,
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY || null,
+      OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || null,
+      OPENAI_MODEL: process.env.OPENAI_MODEL || null,
+    }),
+  );
+  process.exit(0);
+}
+
 // 需求分析模式
 if (task.includes('产品需求分析师')) {
   if (task.includes('个人使用') && task.includes('记录收支')) {
