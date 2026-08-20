@@ -19,7 +19,7 @@ export function registerIpcHandlers(
   registerChatIpc(storage, dsh);
   registerProjectIpc(storage, developer);
   registerPreviewIpc(storage);
-  registerExportIpc();
+  registerExportIpc(storage);
   registerSettingsIpc(storage);
   registerApiKeyIpc(storage);
 }

@@ -5,9 +5,11 @@ import ProjectWelcome from './components/ProjectWelcome';
 import PreviewContainer from './components/Preview/PreviewContainer';
 import ElementInspector from './components/Preview/ElementInspector';
 import RequirementCard from './components/Chat/RequirementCard';
+import ExportPanel from './components/Export/ExportPanel';
 import { useChatStore } from './store/chat';
 import { useProjectStore } from './store/project';
 import { useUiStore } from './store/ui';
+import { useExportStore, handleExportComplete } from './store/export';
 import { useChatEvents } from './hooks/useChatEvents';
 import type { AppInfo } from '@shared/types/app';
 
@@ -26,6 +28,18 @@ export default function App() {
   const setRequirements = useChatStore((s) => s.setRequirements);
   const setProjectStatus = useChatStore((s) => s.setProjectStatus);
   useChatEvents();
+
+  // 订阅导出完成事件
+  useEffect(() => {
+    const unsub = window.electron.export.onComplete((data) => handleExportComplete(data));
+    return unsub;
+  }, []);
+
+  // 项目切换时重置导出面板状态
+  useEffect(() => {
+    if (!currentProjectId) return;
+    useExportStore.getState().reset();
+  }, [currentProjectId]);
 
   useEffect(() => {
     void loadProjects();
@@ -131,6 +145,9 @@ export default function App() {
         <span>● DeepSeek API 已连接</span>
         <span>项目保存在本地</span>
       </footer>
+
+      {/* 导出面板 */}
+      <ExportPanel />
     </div>
   );
 }

@@ -1,9 +1,11 @@
 import { useUiStore } from '../store/ui';
+import { useExportStore } from '../store/export';
 
 /** 左侧导航栏（前端设计说明书 2.2） */
 export default function Sidebar() {
   const currentView = useUiStore((s) => s.currentView);
   const setView = useUiStore((s) => s.setView);
+  const openExport = useExportStore((s) => s.open);
 
   const items = [
     { key: 'chat', icon: '💬', label: '对话' },
@@ -29,7 +31,15 @@ export default function Sidebar() {
         </button>
       ))}
       <div className="mt-auto flex flex-col items-center gap-2 text-slate-400">
-        <span title="导出">📦</span>
+        <button
+          type="button"
+          onClick={openExport}
+          title="导出部署包"
+          className="flex h-11 w-11 flex-col items-center justify-center rounded-lg text-xs transition-colors hover:bg-slate-100"
+        >
+          <span className="text-lg leading-none">📦</span>
+          <span className="mt-0.5">导出</span>
+        </button>
         <span title="设置">⚙️</span>
       </div>
     </nav>
