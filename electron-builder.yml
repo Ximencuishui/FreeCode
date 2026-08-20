@@ -20,7 +20,7 @@ win:
   target:
     - target: nsis
     - target: portable
-  icon: resources/icons/icon.ico
+  # icon: resources/icons/icon.ico   # 待提供图标（当前使用默认）
 
 nsis:
   oneClick: false
@@ -28,7 +28,7 @@ nsis:
 
 mac:
   category: public.app-category.developer-tools
-  icon: resources/icons/icon.icns
+  # icon: resources/icons/icon.icns   # 待提供图标
   target:
     - dmg
     - zip
@@ -37,4 +37,4 @@ linux:
   target:
     - AppImage
     - deb
-  icon: resources/icons/icon.png
+  # icon: resources/icons/icon.png   # 待提供图标
