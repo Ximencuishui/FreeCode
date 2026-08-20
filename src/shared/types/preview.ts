@@ -8,6 +8,8 @@ export interface PreviewStartResult {
   success: boolean;
   url?: string;
   port?: number;
+  /** webview 元素检查器 preload 脚本路径 */
+  inspectorPath?: string;
   error?: string;
 }
 

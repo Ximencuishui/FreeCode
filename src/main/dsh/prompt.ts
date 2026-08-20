@@ -1,4 +1,5 @@
 import type { ChatMessage, Requirements } from '../storage/types';
+import type { ElementInfo } from '../../shared/types/preview';
 
 /**
  * AI 助理对话任务构建。
@@ -100,4 +101,38 @@ ${reqText}
 5. 确保应用功能完整可交互
 
 完成后回复一句话总结（例如：已完成记账应用开发）。`;
+}
+
+/** 修改任务：基于现有代码实施用户的口语修改指令 */
+export function buildModifyTask(
+  message: string,
+  selectedElement: ElementInfo | undefined,
+  requirements: Requirements | null,
+): string {
+  const elementText = selectedElement
+    ? `目标元素信息：
+- 选择器：${selectedElement.selector}
+- 标签：${selectedElement.tag}
+- 内容：${selectedElement.content || '（无文本）'}
+- 当前样式：颜色 ${selectedElement.styles.color ?? '未知'}，字号 ${selectedElement.styles.fontSize ?? '未知'}，字重 ${selectedElement.styles.fontWeight ?? '未知'}，背景 ${selectedElement.styles.backgroundColor ?? '未知'}，圆角 ${selectedElement.styles.borderRadius ?? '未知'}
+请优先只修改这个元素（通过选择器定位）。`
+    : '用户没有指定具体元素，请根据描述判断要修改的元素。';
+
+  return `你是 FreeCoder 的开发工程师。当前工作目录中已有一个可运行的 Web 应用（index.html / style.css / app.js），用户提出了修改要求。
+
+【项目需求背景】
+${requirements ? JSON.stringify({ goal: requirements.goal, visualStyle: requirements.visualStyle }) : '（无）'}
+
+【用户的修改要求】
+${message}
+
+【${selectedElement ? '目标元素' : '修改提示'}】
+${elementText}
+
+【要求】
+1. 直接编辑现有文件实施修改，保持应用可运行（不要重建整个项目）
+2. 修改要具体、最小化，优先改动 CSS 样式
+3. 保持界面整体风格一致
+
+完成后用一句话回复改了什么（例如：已将标题颜色调整为天蓝色 #4A90D9）。`;
 }

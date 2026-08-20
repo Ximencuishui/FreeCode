@@ -4,6 +4,7 @@
  */
 import { create } from 'zustand';
 import type { RequirementSummary } from '@shared/types/project';
+import type { ElementInfo, ElementSelectResult } from '@shared/types/preview';
 
 export interface ChatOption {
   key: string;
@@ -24,10 +25,16 @@ interface ChatState {
   currentProjectId: string | null;
   requirements: RequirementSummary | null;
   projectStatus: 'draft' | 'developing' | 'ready' | 'exported' | null;
+  /** 预览中选中的元素（口语修改上下文） */
+  selectedElement: ElementInfo | null;
+  /** 选中元素的友好描述（右侧检查器展示） */
+  elementInfo: ElementSelectResult['elementInfo'] | null;
 
   setProject: (id: string | null) => void;
   setRequirements: (req: RequirementSummary | null) => void;
   setProjectStatus: (status: ChatState['projectStatus']) => void;
+  setSelectedElement: (el: ElementInfo | null) => void;
+  setElementInfo: (info: ElementSelectResult['elementInfo'] | null) => void;
   setProcessing: (v: boolean) => void;
   pushMessage: (msg: Omit<ChatMessageUI, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) => void;
   clearMessages: () => void;
@@ -43,10 +50,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
   currentProjectId: null,
   requirements: null,
   projectStatus: null,
+  selectedElement: null,
+  elementInfo: null,
 
-  setProject: (id) => set({ currentProjectId: id, requirements: null, projectStatus: null }),
+  setProject: (id) =>
+    set({
+      currentProjectId: id,
+      requirements: null,
+      projectStatus: null,
+      selectedElement: null,
+      elementInfo: null,
+    }),
   setRequirements: (req) => set({ requirements: req }),
   setProjectStatus: (status) => set({ projectStatus: status }),
+  setSelectedElement: (el) => set({ selectedElement: el }),
+  setElementInfo: (info) => set({ elementInfo: info }),
   setProcessing: (v) => set({ isProcessing: v }),
 
   pushMessage: (msg) => {
@@ -78,7 +96,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (text) => {
-    const { currentProjectId, pushMessage } = get();
+    const { currentProjectId, pushMessage, selectedElement } = get();
     const trimmed = text.trim();
     if (!trimmed || !currentProjectId) return;
 
@@ -86,7 +104,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ isProcessing: true });
 
     try {
-      await window.electron.chat.send({ projectId: currentProjectId, message: trimmed });
+      await window.electron.chat.send({
+        projectId: currentProjectId,
+        message: trimmed,
+        selectedElement: selectedElement ?? undefined,
+      });
       // 回复经 chat:response 事件到达（useChatEvents）
     } catch (err) {
       const message =

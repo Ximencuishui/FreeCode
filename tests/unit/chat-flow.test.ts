@@ -36,7 +36,10 @@ class FakeStorage implements StorageManager {
     return [...this.projects.values()];
   }
   async deleteProject(): Promise<void> {}
-  async updateProjectMeta(): Promise<void> {}
+  async updateProjectMeta(id: string, updates: Partial<ProjectMeta>): Promise<void> {
+    const meta = this.projects.get(id);
+    if (meta) this.projects.set(id, { ...meta, ...updates });
+  }
   async saveRequirements(projectId: string, requirements: Requirements): Promise<void> {
     this.reqs.set(projectId, requirements);
   }
@@ -132,5 +135,50 @@ describe('AI 助理对话流（ChatFlow）', () => {
     await expect(flow.handleSend('proj-missing', '你好')).rejects.toMatchObject({
       code: 'PROJECT_NOT_FOUND',
     });
+  });
+
+  it('修改阶段（ready）：使用修改任务并附带选中元素上下文', async () => {
+    const storage = new FakeStorage();
+    const meta = await storage.createProject('记账本');
+    // 进入 ready 状态
+    await storage.updateProjectMeta(meta.id, { status: 'ready' });
+    const dsh = {
+      runTask: jest.fn(async () => ({ reply: '已将标题颜色调整为天蓝色 #4A90D9', exitCode: 0 })),
+    };
+
+    const flow = new ChatFlow({ storage, dsh });
+    await flow.handleSend(
+      meta.id,
+      '标题颜色太深了',
+      {
+        tag: 'h1',
+        selector: 'h1.title',
+        content: '欢迎',
+        styles: { color: '#1A2B3C' },
+        position: { x: 0, y: 0, width: 100, height: 30 },
+      },
+    );
+
+    const task = dsh.runTask.mock.calls[0][1] as string;
+    // 修改阶段：不走需求分析 prompt
+    expect(task).not.toContain('产品需求分析师');
+    expect(task).toContain('标题颜色太深了');
+    expect(task).toContain('h1.title');
+    // 不尝试解析需求卡片
+    expect(await storage.getRequirements(meta.id)).toBeNull();
+  });
+
+  it('需求阶段（draft）：继续需求对话', async () => {
+    const storage = new FakeStorage();
+    const meta = await storage.createProject('记账本');
+    const dsh = {
+      runTask: jest.fn(async () => ({ reply: '好的，谁会用这个工具？', exitCode: 0 })),
+    };
+
+    const flow = new ChatFlow({ storage, dsh });
+    await flow.handleSend(meta.id, '个人使用');
+    const task = dsh.runTask.mock.calls[0][1] as string;
+    expect(task).toContain('产品需求分析师');
+    expect(task).toContain('个人使用');
   });
 });

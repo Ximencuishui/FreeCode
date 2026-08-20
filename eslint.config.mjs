@@ -5,7 +5,15 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'out/**', 'release/**', 'node_modules/**'] },
+  {
+    ignores: [
+      'dist/**',
+      'out/**',
+      'release/**',
+      'node_modules/**',
+      'resources/**', // 运行时资源（webview inspector 等），非源码
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

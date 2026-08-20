@@ -1,3 +1,6 @@
+import type { RequirementSummary } from './project';
+import type { ElementInfo } from './preview';
+
 /** 对话域类型（API 文档 4.1） */
 
 export interface ChatSendParams {
@@ -7,6 +10,8 @@ export interface ChatSendParams {
     type: 'image' | 'file';
     data: string;
   }[];
+  /** 口语修改：当前选中的预览元素（预览修改模式下附带） */
+  selectedElement?: ElementInfo;
 }
 
 export interface ChatSendResult {
@@ -14,8 +19,6 @@ export interface ChatSendResult {
   messageId?: string;
   error?: string;
 }
-
-import type { RequirementSummary } from './project';
 
 export interface ChatResponseEvent {
   type: 'message' | 'thinking' | 'done' | 'error';

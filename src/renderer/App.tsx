@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar';
 import ChatContainer from './components/Chat/ChatContainer';
 import ProjectWelcome from './components/ProjectWelcome';
 import PreviewContainer from './components/Preview/PreviewContainer';
+import ElementInspector from './components/Preview/ElementInspector';
 import RequirementCard from './components/Chat/RequirementCard';
 import { useChatStore } from './store/chat';
 import { useProjectStore } from './store/project';
@@ -18,6 +19,10 @@ export default function App() {
   const currentView = useUiStore((s) => s.currentView);
   const requirements = useChatStore((s) => s.requirements);
   const projectStatus = useChatStore((s) => s.projectStatus);
+  const selectedElement = useChatStore((s) => s.selectedElement);
+  const elementInfo = useChatStore((s) => s.elementInfo);
+  const isProcessing = useChatStore((s) => s.isProcessing);
+  const sendMessage = useChatStore((s) => s.sendMessage);
   const setRequirements = useChatStore((s) => s.setRequirements);
   const setProjectStatus = useChatStore((s) => s.setProjectStatus);
   useChatEvents();
@@ -86,7 +91,26 @@ export default function App() {
           )}
         </section>
         <aside className="w-72 shrink-0 overflow-y-auto border-l border-slate-200 bg-slate-50 p-4">
-          {currentProjectId && requirements ? (
+          {!currentProjectId ? (
+            <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-xs text-slate-400">
+              创建项目后，这里会显示需求卡片或元素信息
+            </div>
+          ) : currentView === 'preview' ? (
+            selectedElement && elementInfo ? (
+              <ElementInspector
+                element={selectedElement}
+                info={elementInfo}
+                isProcessing={isProcessing}
+                onSendModify={(instruction) => void sendMessage(instruction)}
+              />
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-xs text-slate-400">
+                🔍 元素信息
+                <br />
+                <span className="mt-1 block">在预览中悬停/点击任意元素查看信息</span>
+              </div>
+            )
+          ) : requirements ? (
             <RequirementCard
               requirements={requirements}
               status={projectStatus}

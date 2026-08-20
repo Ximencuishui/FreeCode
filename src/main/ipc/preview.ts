@@ -1,4 +1,5 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, app } from 'electron';
+import path from 'node:path';
 import { IpcChannels } from '../../shared/types/ipc';
 import type {
   PreviewStartParams,
@@ -11,6 +12,7 @@ import type {
 } from '../../shared/types/preview';
 import type { StorageManager } from '../storage/types';
 import { PreviewServer } from '../preview/server';
+import { describeElement } from '../preview/inspector';
 import { handleIpc, IpcError } from './helpers';
 
 /** 向所有窗口推送 preview:status 事件 */
@@ -45,7 +47,12 @@ export function registerPreviewIpc(storage: StorageManager): void {
       if (server.isRunning()) {
         // 幂等：已在运行时直接返回当前预览地址
         const port = server.getPort();
-        return { success: true, url: `http://localhost:${port}`, port: port ?? undefined };
+        return {
+          success: true,
+          url: `http://localhost:${port}`,
+          port: port ?? undefined,
+          inspectorPath: getInspectorPath(),
+        };
       }
 
       broadcastStatus({ status: 'starting', message: '正在启动预览…' });
@@ -53,7 +60,12 @@ export function registerPreviewIpc(storage: StorageManager): void {
         const info = await server.start(storage.getProjectCodePath(params.projectId));
         await storage.updateProjectMeta(params.projectId, { previewPort: info.port });
         broadcastStatus({ status: 'running', url: info.url });
-        return { success: true, url: info.url, port: info.port };
+        return {
+          success: true,
+          url: info.url,
+          port: info.port,
+          inspectorPath: getInspectorPath(),
+        };
       } catch (err) {
         broadcastStatus({ status: 'error', message: '预览启动失败' });
         throw err;
@@ -84,7 +96,12 @@ export function registerPreviewIpc(storage: StorageManager): void {
       if (!params?.element) {
         throw new IpcError('INVALID_PARAMS', '元素信息不能为空');
       }
-      throw new IpcError('NOT_IMPLEMENTED', '元素识别将在后续版本提供');
+      return { success: true, elementInfo: describeElement(params.element) };
     },
   );
+}
+
+/** webview 元素检查器 preload 路径（随应用分发） */
+function getInspectorPath(): string {
+  return path.join(app.getAppPath(), 'resources', 'preview', 'inspector.js');
 }
