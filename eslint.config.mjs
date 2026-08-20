@@ -25,6 +25,13 @@ export default tseslint.config(
     },
   },
   {
+    // 官网静态页脚本（浏览器环境，非 Node）
+    files: ['website/**/*.js'],
+    languageOptions: {
+      globals: { ...globals.browser },
+    },
+  },
+  {
     files: ['**/*.{ts,tsx}'],
     languageOptions: {
       ecmaVersion: 2022,
