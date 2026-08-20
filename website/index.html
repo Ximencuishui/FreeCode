@@ -6,8 +6,8 @@
 
   <!-- ===== SEO ===== -->
   <title>FreeCoder — 把想法变成可用的软件，像跟朋友聊天一样简单</title>
-  <meta name="description" content="FreeCoder 是开源、本地优先的桌面应用：用自然语言对话即可从零生成可运行的软件。AI 需求分析、即时预览、一键导出部署包，全程不写一行代码，数据保存在本地，自备 DeepSeek API Key 即用。" />
-  <meta name="keywords" content="FreeCoder, AI 编程, 自然语言生成软件, 无代码开发, AI 应用生成器, 桌面应用, DeepSeek, 开源软件" />
+  <meta name="description" content="FreeCoder 是开源、本地优先的桌面应用，底层基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎：用自然语言对话即可从零生成可运行的软件。AI 需求分析、即时预览、一键导出部署包，全程不写一行代码，数据保存在本地，自备 DeepSeek API Key 即用。" />
+  <meta name="keywords" content="FreeCoder, AI 编程, 自然语言生成软件, 无代码开发, AI 应用生成器, 桌面应用, DeepSeek, DeepSeek Harness, DSH, 智能体引擎, Agent, 开源软件" />
   <meta name="author" content="FreeCoder Team" />
   <meta name="robots" content="index, follow, max-image-preview:large" />
   <link rel="canonical" href="https://freecoder.vercel.app/" />
@@ -19,7 +19,7 @@
   <meta property="og:locale" content="zh_CN" />
   <meta property="og:url" content="https://freecoder.vercel.app/" />
   <meta property="og:title" content="FreeCoder — 把想法变成可用的软件，像跟朋友聊天一样简单" />
-  <meta property="og:description" content="开源 · 本地优先 · 不写一行代码。对话 → 开发 → 预览 → 修改 → 导出，把想法变成可运行的软件。" />
+  <meta property="og:description" content="基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎 · 开源 · 本地优先 · 不写一行代码。对话 → 开发 → 预览 → 修改 → 导出，把想法变成可运行的软件。" />
   <meta property="og:image" content="https://freecoder.vercel.app/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -28,7 +28,7 @@
   <!-- ===== Twitter Card ===== -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="FreeCoder — 把想法变成可用的软件" />
-  <meta name="twitter:description" content="开源 · 本地优先 · 不写一行代码。对话 → 开发 → 预览 → 修改 → 导出。" />
+  <meta name="twitter:description" content="基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎 · 开源 · 本地优先 · 不写一行代码。对话 → 开发 → 预览 → 修改 → 导出。" />
   <meta name="twitter:image" content="https://freecoder.vercel.app/og-image.png" />
 
   <!-- ===== 结构化数据（SEO / GEO） ===== -->
@@ -38,7 +38,7 @@
     "@type": "SoftwareApplication",
     "name": "FreeCoder",
     "alternateName": "FreeCoder 桌面应用",
-    "description": "FreeCoder 是开源的、本地优先的桌面应用，让非技术用户通过自然语言对话从零生成可运行的软件。AI 需求分析、即时预览、口语修改、一键导出部署包，全程不写一行代码，所有数据保存在本地，自备 DeepSeek API Key 即可使用。",
+    "description": "FreeCoder 是开源的、本地优先的桌面应用，让非技术用户通过自然语言对话从零生成可运行的软件。底层基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎，AI 需求分析、即时预览、口语修改、一键导出部署包，全程不写一行代码，所有数据保存在本地，自备 DeepSeek API Key 即可使用。",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Windows 10/11（macOS、Linux 即将推出）",
     "softwareVersion": "0.1.0",
@@ -82,6 +82,14 @@
         "acceptedAnswer": {
           "@type": "Answer",
           "text": "FreeCoder 是一款开源的桌面应用（基于 Electron），让非技术用户通过自然语言对话，从零生成可运行的软件。它不依赖任何云端服务，所有代码与数据保存在用户本地，自备 DeepSeek API Key 即可使用，底层基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎。"
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "DeepSeek Harness（DSH）是什么？",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "DeepSeek Harness（DSH）是 DeepSeek 开源的 AI 智能体引擎，以「一切皆插件」的架构让大模型像工程师一样读写代码、执行命令、自主完成开发任务。FreeCoder 的自动开发、对话式需求分析与口语修改均由 DSH 驱动。"
         }
       },
       {
@@ -177,12 +185,14 @@
       <div class="hero-inner">
         <div class="hero-copy reveal">
           <span class="pill">
-            <span class="dot"></span> 开源 · MIT · 本地优先 · 0.1.0 MVP
+            <span class="dot"></span><span>基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎</span>
           </span>
           <h1>把想法变成可用的软件，<br/>像跟朋友聊天一样简单。</h1>
           <p class="lead">
-            FreeCoder 是开源的桌面应用：用自然语言描述你的想法，AI 助理引导你完成
-            <strong>需求分析 → 自动开发 → 即时预览 → 口语修改 → 导出部署包</strong>。
+            FreeCoder 是开源的桌面应用，底层基于 DeepSeek 开源的
+            <strong>DeepSeek Harness（DSH）智能体引擎</strong>——
+            用自然语言描述你的想法，AI 助理引导你完成
+            <strong>需求分析 → 自动开发 → 即时预览 → 口语修改 → 导出部署包</strong>，
             全程不写一行代码，所有数据留在你的电脑上。
           </p>
           <div class="hero-cta">
@@ -313,7 +323,7 @@
         <li class="step reveal">
           <span class="step-num">02</span>
           <h3>⚙️ 开发</h3>
-          <p>确认需求后，底层 DeepSeek Harness 自动生成完整可运行的代码。</p>
+          <p>确认需求后，底层基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎自动生成完整可运行的代码。</p>
         </li>
         <li class="step reveal">
           <span class="step-num">03</span>
@@ -377,13 +387,27 @@
     <section class="section section-alt" id="tech">
       <div class="section-head reveal">
         <span class="kicker">技术栈</span>
-        <h2>现代而克制</h2>
-        <p>成熟稳定的桌面技术，搭配 DeepSeek 开源的 Agent 引擎。</p>
+        <h2>现代而克制，核心由 DSH 驱动</h2>
+        <p>以 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎为核心，搭配成熟稳定的桌面技术。</p>
       </div>
       <div class="tech-list reveal">
         <span>Electron 43</span><span>React 18</span><span>TypeScript 5.9</span>
         <span>Zustand</span><span>Tailwind CSS</span><span>Vite 6</span>
-        <span>DeepSeek Harness (DSH)</span><span>pnpm</span>
+        <span class="tech-chip-featured">DeepSeek Harness (DSH) · 核心引擎</span><span>pnpm</span>
+      </div>
+      <div class="engine-card reveal">
+        <span class="engine-icon" aria-hidden="true">🤖</span>
+        <div>
+          <h3>核心引擎：DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎</h3>
+          <p>
+            FreeCoder 的自动开发能力由 <strong>DeepSeek Harness（DSH）</strong> 驱动——这是 DeepSeek 开源的
+            AI 智能体引擎，以「一切皆插件」的架构让模型像工程师一样读写代码、执行命令、自主完成任务。
+            确认需求后，DSH 自动完成从代码生成到可运行的全部过程，并支撑对话式修改与即时预览。
+          </p>
+          <a class="btn btn-ghost btn-sm" href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noopener">
+            了解 DeepSeek Harness <span aria-hidden="true">→</span>
+          </a>
+        </div>
       </div>
     </section>
 
@@ -438,6 +462,10 @@
         <details class="faq-item reveal" open>
           <summary>FreeCoder 是什么？</summary>
           <p>FreeCoder 是一款开源的桌面应用（基于 Electron），让非技术用户通过自然语言对话，从零生成可运行的软件。它不依赖任何云端服务，所有代码与数据保存在用户本地，自备 DeepSeek API Key 即可使用，底层基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎。</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>DeepSeek Harness（DSH）是什么？为什么 FreeCoder 基于它？</summary>
+          <p>DeepSeek Harness（DSH）是 DeepSeek 开源的 AI 智能体引擎，以「一切皆插件」的架构让大模型像工程师一样读写文件、执行命令、自主完成开发任务。FreeCoder 基于 DSH，把「确认需求 → 自动开发 → 口语修改 → 即时预览」的整套能力做成了非技术用户也能轻松上手的桌面应用。</p>
         </details>
         <details class="faq-item reveal">
           <summary>需要会写代码吗？</summary>

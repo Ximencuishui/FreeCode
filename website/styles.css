@@ -156,11 +156,14 @@ a { color: inherit; text-decoration: none; }
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  max-width: 100%;
   padding: 7px 14px;
   border-radius: 999px;
   border: 1px solid var(--border-strong);
   background: var(--panel);
   font-size: 13px;
+  line-height: 1.5;
   color: var(--text-dim);
   margin-bottom: 22px;
 }
@@ -421,6 +424,30 @@ a { color: inherit; text-decoration: none; }
   transition: border-color 0.2s, background 0.2s;
 }
 .tech-list span:hover { border-color: rgba(99, 102, 241, 0.6); background: rgba(99, 102, 241, 0.1); }
+.tech-list span.tech-chip-featured {
+  border-color: rgba(99, 102, 241, 0.75);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.24), rgba(34, 211, 238, 0.14));
+  color: #dfe4ff;
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.25), 0 6px 24px rgba(99, 102, 241, 0.18);
+}
+
+/* 核心引擎卡片（DeepSeek Harness / DSH） */
+.engine-card {
+  max-width: 860px;
+  margin: 28px auto 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 22px 24px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(99, 102, 241, 0.38);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(34, 211, 238, 0.05));
+  text-align: left;
+}
+.engine-icon { font-size: 26px; line-height: 1; flex-shrink: 0; }
+.engine-card h3 { font-size: 16.5px; font-weight: 700; margin-bottom: 6px; }
+.engine-card p { font-size: 14px; color: var(--text-dim); line-height: 1.65; margin-bottom: 14px; }
+.engine-card p strong { color: var(--text); }
 
 /* ---------- 安装指南 ---------- */
 .guide { max-width: var(--maxw); margin: 0 auto; }
@@ -581,6 +608,7 @@ a { color: inherit; text-decoration: none; }
   .mock-body { grid-template-columns: 1fr; }
   .mock-sidebar { display: none; }
   .mock-window { min-height: 0; }
+  .engine-card { flex-direction: column; }
 }
 
 /* 窄屏手机：导航只保留汉堡按钮，CTA 移交给页面内下载区 */

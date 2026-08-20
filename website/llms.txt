@@ -2,7 +2,7 @@
 
 > 把想法变成可用的软件，像跟朋友聊天一样简单。
 
-FreeCoder 是一款开源的、本地优先的桌面应用（基于 Electron），让非技术用户通过自然语言对话，从零生成可运行的软件。所有代码与数据保存在用户本地，无任何云端依赖；用户自备 DeepSeek API Key 即可完整使用。
+FreeCoder 是一款开源的、本地优先的桌面应用（基于 Electron），让非技术用户通过自然语言对话，从零生成可运行的软件。底层基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎——由 DSH 驱动自动开发、对话式修改与即时预览。所有代码与数据保存在用户本地，无任何云端依赖；用户自备 DeepSeek API Key 即可完整使用。
 
 - 官网：https://freecoder.vercel.app/
 - 源码：https://github.com/Ximencuishui/FreeCode
@@ -20,7 +20,13 @@ FreeCoder 是一款开源的、本地优先的桌面应用（基于 Electron）�
 
 ## 技术栈
 
-Electron 43 · React 18 · TypeScript 5.9 · Zustand · Tailwind CSS · Vite 6 · DeepSeek Harness (DSH)
+Electron 43 · React 18 · TypeScript 5.9 · Zustand · Tailwind CSS · Vite 6 · pnpm · DeepSeek Harness (DSH)
+
+## 核心引擎
+
+FreeCoder 底层基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎。DSH 以「一切皆插件」的架构让大模型像工程师一样读写代码、执行命令、自主完成任务，是 FreeCoder 自动开发、对话式修改与即时预览能力的来源。
+
+- DeepSeek Harness 官方仓库：https://github.com/deepseek-ai/deepseek-harness
 
 ## 平台与状态
 
@@ -38,3 +44,4 @@ Electron 43 · React 18 · TypeScript 5.9 · Zustand · Tailwind CSS · Vite 6 �
 - GitHub 源码：https://github.com/Ximencuishui/FreeCode
 - GitHub Releases（下载）：https://github.com/Ximencuishui/FreeCode/releases
 - DeepSeek 开放平台（API Key）：https://platform.deepseek.com/
+- DeepSeek Harness（DSH 智能体引擎）：https://github.com/deepseek-ai/deepseek-harness
