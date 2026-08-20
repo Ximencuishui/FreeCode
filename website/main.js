@@ -90,7 +90,6 @@
       userMsg.className = 'msg user';
       userMsg.textContent = turn.user;
       slot.parentNode.insertBefore(userMsg, slot);
-      userMsg.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 
       setTimeout(function () {
         renderTypingDots();
