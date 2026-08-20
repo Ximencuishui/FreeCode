@@ -1,0 +1,40 @@
+# FreeCoder
+
+> 把想法变成可用的软件，像跟朋友聊天一样简单。
+
+FreeCoder 是一款开源的、本地优先的桌面应用（基于 Electron），让非技术用户通过自然语言对话，从零生成可运行的软件。所有代码与数据保存在用户本地，无任何云端依赖；用户自备 DeepSeek API Key 即可完整使用。
+
+- 官网：https://freecoder.vercel.app/
+- 源码：https://github.com/Ximencuishui/FreeCode
+- 协议：MIT License（开源免费，无月费）
+
+## 核心功能
+
+- AI 助理（需求分析师）：对话引导、需求挖掘、信号翻译、结构化需求卡片
+- 即时预览（可视化反馈）：内置浏览器、元素悬停识别、口语修改即时生效
+- 自助导出（部署准备）：导出源码 + Dockerfile + docker-compose + 中英文部署指引
+
+## 工作闭环
+
+对话 → 开发 → 预览 → 修改 → 导出
+
+## 技术栈
+
+Electron 43 · React 18 · TypeScript 5.9 · Zustand · Tailwind CSS · Vite 6 · DeepSeek Harness (DSH)
+
+## 平台与状态
+
+- Windows 10/11 已就绪（已验证）；macOS / Linux 即将推出
+- 当前版本：0.1.0（MVP），生成的应用为静态 Web 应用（数据存于本地）
+- 需要自备 DeepSeek API Key（platform.deepseek.com 申请），系统级加密存储（safeStorage）
+
+## 隐私
+
+所有代码与数据保存在用户本地，不上传任何服务器；无任何遥测；API Key 使用系统级加密（safeStorage）存储。
+
+## 链接
+
+- 官网：https://freecoder.vercel.app/
+- GitHub 源码：https://github.com/Ximencuishui/FreeCode
+- GitHub Releases（下载）：https://github.com/Ximencuishui/FreeCode/releases
+- DeepSeek 开放平台（API Key）：https://platform.deepseek.com/

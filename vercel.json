@@ -1,0 +1,5 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "echo \"[FreeCoder] 部署配置错误：Root Directory 未设置为 website/。本仓库只有 website/ 目录适合部署到 Vercel（Electron 应用本体无法静态托管）。请在 Vercel 项目 Settings → General → Root Directory 改为 website 后重新部署。\" && exit 1"
+}

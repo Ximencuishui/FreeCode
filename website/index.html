@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- ===== SEO ===== -->
+  <title>FreeCoder — 把想法变成可用的软件，像跟朋友聊天一样简单</title>
+  <meta name="description" content="FreeCoder 是开源、本地优先的桌面应用：用自然语言对话即可从零生成可运行的软件。AI 需求分析、即时预览、一键导出部署包，全程不写一行代码，数据保存在本地，自备 DeepSeek API Key 即用。" />
+  <meta name="keywords" content="FreeCoder, AI 编程, 自然语言生成软件, 无代码开发, AI 应用生成器, 桌面应用, DeepSeek, 开源软件" />
+  <meta name="author" content="FreeCoder Team" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="https://freecoder.vercel.app/" />
+  <meta name="theme-color" content="#070b14" />
+
+  <!-- ===== Open Graph ===== -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="FreeCoder" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:url" content="https://freecoder.vercel.app/" />
+  <meta property="og:title" content="FreeCoder — 把想法变成可用的软件，像跟朋友聊天一样简单" />
+  <meta property="og:description" content="开源 · 本地优先 · 不写一行代码。对话 → 开发 → 预览 → 修改 → 导出，把想法变成可运行的软件。" />
+  <meta property="og:image" content="https://freecoder.vercel.app/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="FreeCoder — 把想法变成可用的软件" />
+
+  <!-- ===== Twitter Card ===== -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="FreeCoder — 把想法变成可用的软件" />
+  <meta name="twitter:description" content="开源 · 本地优先 · 不写一行代码。对话 → 开发 → 预览 → 修改 → 导出。" />
+  <meta name="twitter:image" content="https://freecoder.vercel.app/og-image.png" />
+
+  <!-- ===== 结构化数据（SEO / GEO） ===== -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "FreeCoder",
+    "alternateName": "FreeCoder 桌面应用",
+    "description": "FreeCoder 是开源的、本地优先的桌面应用，让非技术用户通过自然语言对话从零生成可运行的软件。AI 需求分析、即时预览、口语修改、一键导出部署包，全程不写一行代码，所有数据保存在本地，自备 DeepSeek API Key 即可使用。",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Windows 10/11（macOS、Linux 即将推出）",
+    "softwareVersion": "0.1.0",
+    "url": "https://freecoder.vercel.app/",
+    "license": "https://opensource.org/licenses/MIT",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "CNY"
+    },
+    "publisher": {
+      "@type": "Organization",
+      "name": "FreeCoder Team",
+      "url": "https://github.com/Ximencuishui/FreeCode"
+    },
+    "sameAs": ["https://github.com/Ximencuishui/FreeCode"]
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "FreeCoder 官网",
+    "url": "https://freecoder.vercel.app/",
+    "inLanguage": "zh-CN",
+    "publisher": {
+      "@type": "Organization",
+      "name": "FreeCoder Team",
+      "url": "https://github.com/Ximencuishui/FreeCode"
+    }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "FreeCoder 是什么？",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "FreeCoder 是一款开源的桌面应用（基于 Electron），让非技术用户通过自然语言对话，从零生成可运行的软件。它不依赖任何云端服务，所有代码与数据保存在用户本地，自备 DeepSeek API Key 即可使用，底层基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎。"
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "需要会写代码吗？",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "完全不需要。一切操作通过对话完成：AI 助理引导你描述需求并确认需求卡片，代码对用户完全隐藏，全程不接触 Git、服务器、数据库等概念。"
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "我的数据和代码安全吗？",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "安全。所有代码与数据都保存在你的电脑本地，不上传任何服务器；API Key 使用系统级加密（safeStorage）存储，应用没有任何遥测。"
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "收费吗？需要什么 API Key？",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "FreeCoder 本身开源免费（MIT License）。你只需自备一个 DeepSeek API Key（在 platform.deepseek.com 申请），按实际用量计费，无月费。"
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "支持哪些平台？",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "当前 0.1.0 支持 Windows 10/11（已验证）；macOS 与 Linux 版本配置已就绪，即将推出。"
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "生成的软件可以部署上线吗？",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "可以。确认满意后一键导出部署包：完整源码 + Dockerfile + docker-compose + 中英文部署指引，在任何支持 Docker 的服务器上即可上线运行，产品完全属于你。"
+        }
+      }
+    ]
+  }
+  </script>
+
+  <link rel="llms.txt" href="/llms.txt" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236366f1'/%3E%3Cpath d='M20 22h24v6H20zm0 10h16v6H20zm0 10h22v6H20z' fill='%23fff'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <!-- ========== 导航 ========== -->
+  <header class="nav" id="top">
+    <div class="nav-inner">
+      <a class="brand" href="#top" aria-label="FreeCoder 首页">
+        <span class="brand-logo" aria-hidden="true">
+          <svg viewBox="0 0 64 64" width="26" height="26">
+            <rect width="64" height="64" rx="14" fill="url(#lg)"/>
+            <defs><linearGradient id="lg" x1="0" y1="0" x2="64" y2="64"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs>
+            <path d="M18 20h28v7H18zm0 12h19v7H18zm0 12h25v7H18z" fill="#fff"/>
+          </svg>
+        </span>
+        <span class="brand-name">FreeCoder</span>
+      </a>
+      <nav class="nav-links" aria-label="主导航">
+        <a href="#features">核心功能</a>
+        <a href="#how">工作原理</a>
+        <a href="#why">为什么选择</a>
+        <a href="#tech">技术栈</a>
+        <a href="#guide">安装指南</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <div class="nav-actions">
+        <a class="btn btn-primary btn-sm" href="#download">下载 FreeCoder</a>
+        <button class="nav-toggle" id="navToggle" aria-label="打开菜单" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ========== Hero ========== -->
+    <section class="hero">
+      <div class="hero-bg" aria-hidden="true">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="grid-lines"></div>
+      </div>
+      <div class="hero-inner">
+        <div class="hero-copy reveal">
+          <span class="pill">
+            <span class="dot"></span> 开源 · MIT · 本地优先 · 0.1.0 MVP
+          </span>
+          <h1>把想法变成可用的软件，<br/>像跟朋友聊天一样简单。</h1>
+          <p class="lead">
+            FreeCoder 是开源的桌面应用：用自然语言描述你的想法，AI 助理引导你完成
+            <strong>需求分析 → 自动开发 → 即时预览 → 口语修改 → 导出部署包</strong>。
+            全程不写一行代码，所有数据留在你的电脑上。
+          </p>
+          <div class="hero-cta">
+            <a class="btn btn-primary" href="#download">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              下载 FreeCoder
+            </a>
+            <a class="btn btn-ghost" href="https://github.com/Ximencuishui/FreeCode" target="_blank" rel="noopener">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55v-2.15c-3.2.7-3.87-1.36-3.87-1.36-.53-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.68 1.25 3.34.95.1-.74.4-1.25.73-1.54-2.55-.29-5.23-1.28-5.23-5.68 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.83 1.18 3.09 0 4.41-2.69 5.38-5.25 5.67.41.35.78 1.05.78 2.12v3.15c0 .3.21.67.8.55A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>
+              查看源码
+            </a>
+          </div>
+          <p class="hero-meta">自备 DeepSeek API Key 即用 · 无需月费 · Windows 已就绪，macOS / Linux 即将推出</p>
+        </div>
+
+        <!-- 产品窗口模拟 -->
+        <div class="mock reveal" aria-hidden="true">
+          <div class="mock-window">
+            <div class="mock-titlebar">
+              <span class="traffic"><i></i><i></i><i></i></span>
+              <span class="title">FreeCoder — 健身打卡助手</span>
+            </div>
+            <div class="mock-body">
+              <aside class="mock-sidebar">
+                <div class="sb-head">项目</div>
+                <div class="sb-item active">
+                  <span class="sb-dot"></span>健身打卡助手
+                </div>
+                <div class="sb-item"><span class="sb-dot sb-dot-2"></span>记账小工具</div>
+                <div class="sb-item"><span class="sb-dot sb-dot-3"></span>周报生成器</div>
+                <div class="sb-new">＋ 新项目</div>
+              </aside>
+              <div class="mock-chat">
+                <div class="msg user">我想做一个记录健身打卡的应用，帮我看看？</div>
+                <div class="msg ai">
+                  好的！我们先明确几个问题——<b>谁会用这个应用？</b>
+                  <div class="chips"><span>我自己用</span><span>和朋友一起</span><span>给客户用</span></div>
+                </div>
+                <div class="msg user">我自己用，还有我的健身教练</div>
+                <div class="msg ai status">
+                  <span class="tick">✓</span> 需求分析完成 · 目标用户 / 核心功能已确认
+                  <div class="bar"><i></i></div>
+                  正在为您生成「健身打卡助手」…
+                </div>
+                <div class="mock-toast">
+                  <span class="tick">🎉</span> 开发完成，正在打开预览
+                </div>
+                <div id="typingSlot" class="msg typing-slot"></div>
+              </div>
+            </div>
+          </div>
+          <div class="mock-float float-1">📦 部署包已导出<br/><small>源码 + Docker 配置 + 部署指引</small></div>
+          <div class="mock-float float-2">🔒 数据保存在本地</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== 数据条 ========== -->
+    <section class="stats">
+      <div class="stats-inner reveal">
+        <div class="stat"><b>0</b><span>行代码需要你写</span></div>
+        <div class="stat"><b>5</b><span>步完成从想法到产品</span></div>
+        <div class="stat"><b>100%</b><span>数据保存在本地</span></div>
+        <div class="stat"><b>1</b><span>个 API Key，无月费</span></div>
+      </div>
+    </section>
+
+    <!-- ========== 核心功能 ========== -->
+    <section class="section" id="features">
+      <div class="section-head reveal">
+        <span class="kicker">核心功能</span>
+        <h2>三大能力，构成完整闭环</h2>
+        <p>无需离开 FreeCoder，即可完成从想法到可运行软件的全过程。</p>
+      </div>
+      <div class="cards">
+        <article class="card reveal">
+          <div class="card-icon" style="--ic:#6366f1">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+          </div>
+          <h3>AI 助理 · 需求分析师</h3>
+          <p>像朋友聊天一样挖掘需求：每次只问 1–2 个问题，选项按钮即点即答。AI 将模糊想法翻译成清晰需求，底层技术信号自动转成大白话。</p>
+          <ul class="card-list">
+            <li>对话引导 · 需求挖掘</li>
+            <li>信号翻译 · 结构化需求卡片</li>
+            <li>随时可看「开发团队怎么说」</li>
+          </ul>
+        </article>
+        <article class="card reveal">
+          <div class="card-icon" style="--ic:#22d3ee">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </div>
+          <h3>即时预览 · 可视化反馈</h3>
+          <p>内置浏览器实时预览生成的应用，悬停元素即可选中。用口语提出修改，改动即时生效——看见成果，随时调整。</p>
+          <ul class="card-list">
+            <li>本地预览 · 热加载即时生效</li>
+            <li>元素悬停识别与检查器</li>
+            <li>口语修改，无需理解代码</li>
+          </ul>
+        </article>
+        <article class="card reveal">
+          <div class="card-icon" style="--ic:#a78bfa">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+          </div>
+          <h3>自助导出 · 部署准备</h3>
+          <p>一键导出完整部署包：源码 + Dockerfile + docker-compose + 图文中文部署指引，在任何支持 Docker 的服务器上即可上线。</p>
+          <ul class="card-list">
+            <li>源码 + Docker 配置一键打包</li>
+            <li>中英文部署指引图文并茂</li>
+            <li>产品完全属于你，可自由部署</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <!-- ========== 工作原理 ========== -->
+    <section class="section section-alt" id="how">
+      <div class="section-head reveal">
+        <span class="kicker">工作原理</span>
+        <h2>对话 → 开发 → 预览 → 修改 → 导出</h2>
+        <p>五步闭环，把「我有一个想法」变成「我的软件上线了」。</p>
+      </div>
+      <ol class="steps">
+        <li class="step reveal">
+          <span class="step-num">01</span>
+          <h3>💬 对话</h3>
+          <p>用大白话描述想法，AI 助理引导你逐步明确目标用户、核心功能与视觉风格。</p>
+        </li>
+        <li class="step reveal">
+          <span class="step-num">02</span>
+          <h3>⚙️ 开发</h3>
+          <p>确认需求后，底层 DeepSeek Harness 自动生成完整可运行的代码。</p>
+        </li>
+        <li class="step reveal">
+          <span class="step-num">03</span>
+          <h3>🔍 预览</h3>
+          <p>内置浏览器实时展示成果，元素悬停即可选中，所见即所得。</p>
+        </li>
+        <li class="step reveal">
+          <span class="step-num">04</span>
+          <h3>✏️ 修改</h3>
+          <p>用口语提出修改：「按钮大一点」「颜色换成蓝色」，即时生效。</p>
+        </li>
+        <li class="step reveal">
+          <span class="step-num">05</span>
+          <h3>📦 导出</h3>
+          <p>满意后导出部署包，按中文指引在任何服务器上线，产品归你。</p>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ========== 为什么选择 ========== -->
+    <section class="section" id="why">
+      <div class="section-head reveal">
+        <span class="kicker">为什么选择 FreeCoder</span>
+        <h2>你的数据，只属于你</h2>
+      </div>
+      <div class="why-grid">
+        <article class="why reveal">
+          <span class="why-icon">🔒</span>
+          <h3>本地优先，隐私无忧</h3>
+          <p>所有代码与数据保存在你的电脑上，无任何遥测，不上传任何服务器。</p>
+        </article>
+        <article class="why reveal">
+          <span class="why-icon">🔑</span>
+          <h3>自备 Key，无订阅</h3>
+          <p>使用你自己的 DeepSeek API Key，系统级加密存储，按量付费、无月费。</p>
+        </article>
+        <article class="why reveal">
+          <span class="why-icon">📖</span>
+          <h3>开源 MIT</h3>
+          <p>代码完全开放，可审计、可修改、可自行构建，透明度拉满。</p>
+        </article>
+        <article class="why reveal">
+          <span class="why-icon">🧑‍💻</span>
+          <h3>零学习曲线</h3>
+          <p>打开即用，不碰 Git、服务器、数据库这些概念，一切通过对话完成。</p>
+        </article>
+        <article class="why reveal">
+          <span class="why-icon">📦</span>
+          <h3>成果完全归你</h3>
+          <p>导出源码与部署包，产品代码、数据、文档全部由你掌控。</p>
+        </article>
+        <article class="why reveal">
+          <span class="why-icon">🚀</span>
+          <h3>想法快速验证</h3>
+          <p>创业者与小团队的低成本选择：几十分钟验证一个想法，不再为外包发愁。</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ========== 技术栈 ========== -->
+    <section class="section section-alt" id="tech">
+      <div class="section-head reveal">
+        <span class="kicker">技术栈</span>
+        <h2>现代而克制</h2>
+        <p>成熟稳定的桌面技术，搭配 DeepSeek 开源的 Agent 引擎。</p>
+      </div>
+      <div class="tech-list reveal">
+        <span>Electron 43</span><span>React 18</span><span>TypeScript 5.9</span>
+        <span>Zustand</span><span>Tailwind CSS</span><span>Vite 6</span>
+        <span>DeepSeek Harness (DSH)</span><span>pnpm</span>
+      </div>
+    </section>
+
+    <!-- ========== 安装指南 ========== -->
+    <section class="section" id="guide">
+      <div class="section-head reveal">
+        <span class="kicker">安装指南</span>
+        <h2>三步开始使用</h2>
+        <p>无需阅读文档，打开即用。从下载到看到自己的软件跑起来，只需几分钟。</p>
+      </div>
+      <div class="guide">
+        <ol class="guide-grid">
+          <li class="guide-step reveal">
+            <span class="guide-num">1</span>
+            <span class="guide-icon">📥</span>
+            <h3>下载并安装</h3>
+            <p>前往 <a href="https://github.com/Ximencuishui/FreeCode/releases" target="_blank" rel="noopener">GitHub Releases</a> 下载对应平台的安装包，双击安装并启动 FreeCoder。</p>
+          </li>
+          <li class="guide-step reveal">
+            <span class="guide-num">2</span>
+            <span class="guide-icon">🔑</span>
+            <h3>配置 API Key</h3>
+            <p>首次启动输入你的 DeepSeek API Key，使用系统级加密（safeStorage）保存在本地，绝不上传。</p>
+          </li>
+          <li class="guide-step reveal">
+            <span class="guide-num">3</span>
+            <span class="guide-icon">💬</span>
+            <h3>开始对话</h3>
+            <p>像聊天一样描述你的想法，确认需求后自动开发，预览、口语修改、导出部署包，全程不写一行代码。</p>
+          </li>
+        </ol>
+        <div class="req-card reveal">
+          <strong>使用须知</strong>
+          <ul>
+            <li>🖥️ 平台：Windows 10 / 11 已就绪，macOS / Linux 即将推出</li>
+            <li>🔑 需要自备 DeepSeek API Key（可在 platform.deepseek.com 申请）</li>
+            <li>🔒 所有代码与数据保存在本地，无任何云端依赖、无遥测</li>
+            <li>💡 当前 0.1.0 为 MVP，生成的应用为静态 Web 应用（数据存于本地）</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== 常见问题 ========== -->
+    <section class="section section-alt" id="faq">
+      <div class="section-head reveal">
+        <span class="kicker">常见问题</span>
+        <h2>FAQ</h2>
+        <p>关于 FreeCoder 最常见的问题，一目了然。</p>
+      </div>
+      <div class="faq">
+        <details class="faq-item reveal" open>
+          <summary>FreeCoder 是什么？</summary>
+          <p>FreeCoder 是一款开源的桌面应用（基于 Electron），让非技术用户通过自然语言对话，从零生成可运行的软件。它不依赖任何云端服务，所有代码与数据保存在用户本地，自备 DeepSeek API Key 即可使用，底层基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎。</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>需要会写代码吗？</summary>
+          <p>完全不需要。一切操作通过对话完成：AI 助理引导你描述需求并确认需求卡片，代码对用户完全隐藏，全程不接触 Git、服务器、数据库等概念。</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>我的数据和代码安全吗？</summary>
+          <p>安全。所有代码与数据都保存在你的电脑本地，不上传任何服务器；API Key 使用系统级加密（safeStorage）存储，应用没有任何遥测。</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>收费吗？需要什么 API Key？</summary>
+          <p>FreeCoder 本身开源免费（MIT License）。你只需自备一个 DeepSeek API Key（在 platform.deepseek.com 申请），按实际用量计费，无月费。</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>支持哪些平台？</summary>
+          <p>当前 0.1.0 支持 Windows 10/11（已验证）；macOS 与 Linux 版本配置已就绪，即将推出。</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>生成的软件可以部署上线吗？</summary>
+          <p>可以。确认满意后一键导出部署包：完整源码 + Dockerfile + docker-compose + 中英文部署指引，在任何支持 Docker 的服务器上即可上线运行，产品完全属于你。</p>
+        </details>
+      </div>
+    </section>
+
+    <!-- ========== 下载 ========== -->
+    <section class="section download" id="download">
+      <div class="download-card reveal">
+        <h2>现在就开始，把想法变成软件</h2>
+        <p>下载 FreeCoder 桌面版，自备一个 DeepSeek API Key，几分钟后你就能看到自己的软件跑起来。</p>
+        <div class="download-actions">
+          <a class="btn btn-primary btn-lg" href="https://github.com/Ximencuishui/FreeCode/releases" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            前往 GitHub Releases 下载
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/Ximencuishui/FreeCode" target="_blank" rel="noopener">查看源码与文档</a>
+        </div>
+        <p class="download-note">💡 安装与配置步骤见上方 <a href="#guide">安装指南</a> · 当前 0.1.0 为 MVP：Windows 已就绪 · macOS / Linux 即将推出</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- ========== 页脚 ========== -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <span class="brand-logo" aria-hidden="true">
+          <svg viewBox="0 0 64 64" width="22" height="22">
+            <rect width="64" height="64" rx="14" fill="url(#lg2)"/>
+            <defs><linearGradient id="lg2" x1="0" y1="0" x2="64" y2="64"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs>
+            <path d="M18 20h28v7H18zm0 12h19v7H18zm0 12h25v7H18z" fill="#fff"/>
+          </svg>
+        </span>
+        <span>FreeCoder</span>
+      </div>
+      <p class="footer-tagline">把想法变成可用的软件，像跟朋友聊天一样简单。</p>
+      <div class="footer-links">
+        <a href="https://github.com/Ximencuishui/FreeCode" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/Ximencuishui/FreeCode/releases" target="_blank" rel="noopener">Releases</a>
+        <a href="https://github.com/Ximencuishui/FreeCode/blob/main/README.md" target="_blank" rel="noopener">README</a>
+        <a href="/llms.txt">llms.txt</a>
+      </div>
+      <p class="footer-legal">© 2026 FreeCoder Team · MIT License · 底层引擎：DeepSeek Harness (DSH)</p>
+    </div>
+  </footer>
+
+  <script src="main.js"></script>
+</body>
+</html>
