@@ -18,7 +18,7 @@ export function registerIpcHandlers(
   registerAppIpc();
   registerChatIpc(storage, dsh);
   registerProjectIpc(storage, developer);
-  registerPreviewIpc();
+  registerPreviewIpc(storage);
   registerExportIpc();
   registerSettingsIpc(storage);
   registerApiKeyIpc(storage);

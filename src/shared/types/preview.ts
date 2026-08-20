@@ -22,6 +22,8 @@ export interface PreviewStatusEvent {
   url?: string;
   progress?: number;
   message?: string;
+  /** 文件变更热加载信号：为 true 时渲染进程应刷新预览 */
+  reload?: boolean;
 }
 
 export interface ElementInfo {

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatContainer from './components/Chat/ChatContainer';
 import ProjectWelcome from './components/ProjectWelcome';
-import PreviewPlaceholder from './components/Preview/PreviewPlaceholder';
+import PreviewContainer from './components/Preview/PreviewContainer';
 import RequirementCard from './components/Chat/RequirementCard';
 import { useChatStore } from './store/chat';
 import { useProjectStore } from './store/project';
@@ -82,7 +82,7 @@ export default function App() {
           ) : currentView === 'chat' ? (
             <ChatContainer />
           ) : (
-            <PreviewPlaceholder />
+            <PreviewContainer />
           )}
         </section>
         <aside className="w-72 shrink-0 overflow-y-auto border-l border-slate-200 bg-slate-50 p-4">
