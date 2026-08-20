@@ -21,6 +21,7 @@ export const IpcChannels = {
   projectCreate: 'project:create',
   projectDelete: 'project:delete',
   projectGet: 'project:get',
+  projectConfirm: 'project:confirm',
   // 导出
   exportStart: 'export:start',
   exportComplete: 'export:complete',

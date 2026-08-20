@@ -67,3 +67,21 @@ export interface ProjectGetResult {
   project?: ProjectDetail;
   error?: string;
 }
+
+/** 需求卡片摘要（渲染进程展示用） */
+export interface RequirementSummary {
+  goal: string;
+  targetUsers: string;
+  coreFeatures: string[];
+  visualStyle?: string;
+  confirmed: boolean;
+}
+
+export interface ProjectConfirmParams {
+  projectId: string;
+}
+
+export interface ProjectConfirmResult {
+  success: boolean;
+  error?: string;
+}

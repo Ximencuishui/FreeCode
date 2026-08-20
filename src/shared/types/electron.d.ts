@@ -16,6 +16,8 @@ import type {
   ProjectDeleteResult,
   ProjectGetParams,
   ProjectGetResult,
+  ProjectConfirmParams,
+  ProjectConfirmResult,
 } from './project';
 import type { ExportStartParams, ExportStartResult, ExportCompleteEvent } from './export';
 import type { SettingsGetResult, SettingsUpdateParams, SettingsUpdateResult, ApiKeySaveParams, ApiKeySaveResult, ApiKeyValidateParams, ApiKeyValidateResult } from './settings';
@@ -48,6 +50,7 @@ declare global {
         create: (params: ProjectCreateParams) => Promise<ProjectCreateResult>;
         delete: (params: ProjectDeleteParams) => Promise<ProjectDeleteResult>;
         get: (params: ProjectGetParams) => Promise<ProjectGetResult>;
+        confirm: (params: ProjectConfirmParams) => Promise<ProjectConfirmResult>;
       };
       export: {
         start: (params: ExportStartParams) => Promise<ExportStartResult>;

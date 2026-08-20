@@ -1,53 +1,110 @@
 import { useEffect, useState } from 'react';
+import Sidebar from './components/Sidebar';
+import ChatContainer from './components/Chat/ChatContainer';
+import ProjectWelcome from './components/ProjectWelcome';
+import PreviewPlaceholder from './components/Preview/PreviewPlaceholder';
+import RequirementCard from './components/Chat/RequirementCard';
+import { useChatStore } from './store/chat';
+import { useProjectStore } from './store/project';
+import { useUiStore } from './store/ui';
+import { useChatEvents } from './hooks/useChatEvents';
 import type { AppInfo } from '@shared/types/app';
 
-/**
- * WP-01 最小骨架：三栏布局占位（对话/预览/导出将在后续工作包实现）。
- * 布局与视觉规范见《FreeCoder 前端设计说明书》第二章。
- */
+/** 主界面：三栏式布局（前端设计说明书 2.1） */
 export default function App() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
+  const currentProjectId = useProjectStore((s) => s.currentProjectId);
+  const loadProjects = useProjectStore((s) => s.loadProjects);
+  const currentView = useUiStore((s) => s.currentView);
+  const requirements = useChatStore((s) => s.requirements);
+  const projectStatus = useChatStore((s) => s.projectStatus);
+  const setRequirements = useChatStore((s) => s.setRequirements);
+  const setProjectStatus = useChatStore((s) => s.setProjectStatus);
+  useChatEvents();
 
   useEffect(() => {
+    void loadProjects();
     window.electron.app
       .getInfo()
       .then(setAppInfo)
       .catch(() => setAppInfo(null));
-  }, []);
+  }, [loadProjects]);
+
+  // 项目切换时加载项目上下文（需求 + 状态）
+  useEffect(() => {
+    if (!currentProjectId) return;
+    window.electron.project
+      .get({ projectId: currentProjectId })
+      .then((result) => {
+        if (result.success && result.project) {
+          const r = result.project.requirements;
+          setRequirements({
+            goal: r.goal,
+            targetUsers: r.targetUsers,
+            coreFeatures: r.coreFeatures,
+            visualStyle: r.visualStyle,
+            confirmed:
+              result.project.status !== 'draft' ||
+              (r.goal.trim().length > 0 && r.coreFeatures.length > 0),
+          });
+          setProjectStatus(result.project.status);
+        }
+      })
+      .catch(() => undefined);
+  }, [currentProjectId, setRequirements, setProjectStatus]);
+
+  const handleConfirm = async () => {
+    if (!currentProjectId) return;
+    setProjectStatus('developing');
+    try {
+      await window.electron.project.confirm({ projectId: currentProjectId });
+    } catch {
+      setProjectStatus('draft');
+    }
+  };
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-screen flex-col bg-white text-slate-800">
       {/* 标题栏 */}
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-4">
-        <h1 className="text-base font-semibold text-slate-800">✨ FreeCoder</h1>
+        <h1 className="text-base font-semibold">✨ FreeCoder</h1>
         <div className="text-xs text-slate-400">
           {appInfo ? `v${appInfo.version} · Electron ${appInfo.electron}` : '…'}
         </div>
       </header>
 
-      {/* 主体：左侧栏 + 工作区（右侧面板后续加入） */}
+      {/* 主体：侧栏 + 工作区 + 右侧面板 */}
       <main className="flex flex-1 overflow-hidden">
-        <nav className="w-16 shrink-0 border-r border-slate-200 p-2">
-          <div className="flex flex-col items-center gap-3 pt-2 text-xs text-slate-400">
-            <span className="text-slate-700">💬</span>
-            <span>🔍</span>
-            <span>📦</span>
-            <span>⚙️</span>
-          </div>
-        </nav>
-        <section className="flex flex-1 items-center justify-center p-6">
-          <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-slate-50 p-10 text-center">
-            <p className="text-lg font-medium text-slate-700">欢迎来到 FreeCoder</p>
-            <p className="mt-2 text-sm text-slate-500">
-              把想法变成可用的软件，像跟朋友聊天一样简单。
-            </p>
-          </div>
+        <Sidebar />
+        <section className="flex-1 overflow-hidden">
+          {!currentProjectId ? (
+            <ProjectWelcome />
+          ) : currentView === 'chat' ? (
+            <ChatContainer />
+          ) : (
+            <PreviewPlaceholder />
+          )}
         </section>
+        <aside className="w-72 shrink-0 overflow-y-auto border-l border-slate-200 bg-slate-50 p-4">
+          {currentProjectId && requirements ? (
+            <RequirementCard
+              requirements={requirements}
+              status={projectStatus}
+              onConfirm={() => void handleConfirm()}
+            />
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-xs text-slate-400">
+              📋 需求卡片
+              <br />
+              <span className="mt-1 block">完成需求对话后，这里会显示整理好的需求</span>
+            </div>
+          )}
+        </aside>
       </main>
 
       {/* 状态栏 */}
       <footer className="flex h-8 shrink-0 items-center justify-between border-t border-slate-200 px-4 text-xs text-slate-400">
-        <span>● DeepSeek API 未连接</span>
+        <span>● DeepSeek API 已连接</span>
         <span>项目保存在本地</span>
       </footer>
     </div>

@@ -43,12 +43,23 @@ export function registerChatIpc(storage: StorageManager, dsh: DSHService): void 
 
     const { messageId, reply } = await flow.handleSend(params.projectId, params.message.trim());
 
+    // 附带最新需求卡片（供渲染进程刷新需求面板）
+    const requirements = await storage.getRequirements(params.projectId);
     const timestamp = new Date().toISOString();
     broadcastResponse(params.projectId, {
       type: 'message',
       content: reply,
       messageId,
       isComplete: true,
+      requirements: requirements
+        ? {
+            goal: requirements.goal,
+            targetUsers: requirements.targetUsers,
+            coreFeatures: requirements.coreFeatures,
+            visualStyle: requirements.visualStyle,
+            confirmed: requirements.confirmed,
+          }
+        : null,
       timestamp,
     });
     broadcastResponse(params.projectId, {

@@ -15,11 +15,15 @@ export interface ChatSendResult {
   error?: string;
 }
 
+import type { RequirementSummary } from './project';
+
 export interface ChatResponseEvent {
   type: 'message' | 'thinking' | 'done' | 'error';
   content?: string;
   messageId?: string;
   isComplete?: boolean;
+  /** message 事件附带最新需求卡片（如有） */
+  requirements?: RequirementSummary | null;
   timestamp: string;
 }
 
