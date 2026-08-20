@@ -52,6 +52,8 @@ export default function App() {
   // 项目切换时加载项目上下文（需求 + 状态）
   useEffect(() => {
     if (!currentProjectId) return;
+    // 同步到对话 store（sendMessage 依赖）
+    useChatStore.getState().setProject(currentProjectId);
     window.electron.project
       .get({ projectId: currentProjectId })
       .then((result) => {

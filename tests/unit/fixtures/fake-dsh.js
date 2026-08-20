@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 /**
- * 模拟 dsh CLI 的子进程夹具（供 DSHProcessManager 单元测试使用）。
- * 行为：
- *   - 正常：打印模拟输出后 exit 0
- *   - --crash：打印错误后 exit 1（模拟崩溃）
- *   - --hang：不退出（模拟长驻进程，用于测试 stop）
+ * 模拟 dsh CLI 的子进程夹具（DSH 单元测试 + E2E 离线测试共用）。
+ * 行为（按任务特征匹配）：
+ *   - 需求分析（含"产品需求分析师"）：输入含"个人使用+记录收支"时输出需求 JSON，否则提问
+ *   - 开发（含"全栈开发工程师"）：在 cwd 生成 index.html/style.css/app.js
+ *   - 修改（含"开发工程师"）：改写 style.css
+ *   - --crash：exit 1；--hang：不退出
  */
 const args = process.argv.slice(2);
 const profileIndex = args.indexOf('--profile');
 const profile = profileIndex >= 0 ? args[profileIndex + 1] : 'unknown';
-const task = args[args.length - 1];
+const task = args[args.length - 1] || '';
+
+const path = require('node:path');
+const fs = require('node:fs');
 
 if (args.includes('--crash')) {
   console.error('[FakeDSH] simulated crash');
@@ -19,10 +23,52 @@ if (args.includes('--crash')) {
 if (args.includes('--hang')) {
   console.log('[FakeDSH] hanging...');
   setInterval(() => {}, 1000);
-} else {
-  setTimeout(() => {
-    console.log(`[FakeDSH] profile=${profile} task=${task}`);
-    console.log('模拟回复：你好');
-    process.exit(0);
-  }, 150);
+  return;
 }
+
+// 需求分析模式
+if (task.includes('产品需求分析师')) {
+  if (task.includes('个人使用') && task.includes('记录收支')) {
+    console.log(
+      JSON.stringify({
+        project_name: '测试应用',
+        goal: '个人收支记录工具',
+        target_users: '个人使用',
+        core_features: ['记录收支', '分类统计'],
+        visual_style: '简洁',
+        platform: 'web',
+      }),
+    );
+  } else {
+    console.log('好的，谁会用这个工具？\nA. 个人使用\nB. 家庭共用');
+  }
+  process.exit(0);
+}
+
+// 开发模式（先生成代码）
+if (task.includes('全栈开发工程师')) {
+  const cwd = process.cwd();
+  fs.writeFileSync(
+    path.join(cwd, 'index.html'),
+    '<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><h1 class="title">测试应用</h1><p id="balance">余额：0</p></body></html>',
+  );
+  fs.writeFileSync(path.join(cwd, 'style.css'), 'h1 { color: #1A2B3C; }');
+  fs.writeFileSync(path.join(cwd, 'app.js'), 'console.log("app ready");');
+  console.log('已完成应用开发');
+  process.exit(0);
+}
+
+// 修改模式
+if (task.includes('开发工程师')) {
+  const cwd = process.cwd();
+  fs.writeFileSync(path.join(cwd, 'style.css'), 'h1 { color: #4A90D9; }');
+  console.log('已将标题颜色调整为天蓝色 #4A90D9');
+  process.exit(0);
+}
+
+// 通用回复
+setTimeout(() => {
+  console.log(`[FakeDSH] profile=${profile} task=${task}`);
+  console.log('模拟回复：你好');
+  process.exit(0);
+}, 150);

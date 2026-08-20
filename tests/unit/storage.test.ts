@@ -106,8 +106,7 @@ describe('存储模块（UT-STO）', () => {
     }
   });
 
-  it('UT-STO-005 对话历史归档：超过上限自动归档', async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'freecoder-test-'));
+  it('UT-STO-005 对话历史归档：超过上限自动归档', async () => {    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'freecoder-test-'));
     try {
       // 用小上限（5 条）快速验证归档逻辑；生产默认 1000 条
       const storage = new FileStorageManager(dir, plainEncryptor, 5);
@@ -142,6 +141,25 @@ describe('存储模块（UT-STO）', () => {
         ),
       );
       expect(mainFile.messages).toHaveLength(5);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('UT-REQ-004 需求确认：confirmed=true 且记录确认时间', async () => {
+    const { storage, dir } = await makeStorage();
+    try {
+      const meta = await storage.createProject('记账本');
+      const req = await storage.getRequirements(meta.id);
+      expect(req?.confirmed).toBe(false);
+
+      await storage.confirmRequirements(meta.id);
+      const confirmed = await storage.getRequirements(meta.id);
+      expect(confirmed?.confirmed).toBe(true);
+      expect(confirmed?.confirmedAt).toBeTruthy();
+      // 变更历史追加
+      expect(confirmed?.history.length).toBeGreaterThanOrEqual(2);
+      expect(confirmed?.history[confirmed.history.length - 1].changes).toContain('确认');
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

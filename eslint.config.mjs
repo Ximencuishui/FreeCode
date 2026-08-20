@@ -12,6 +12,7 @@ export default tseslint.config(
       'release/**',
       'node_modules/**',
       'resources/**', // 运行时资源（webview inspector 等），非源码
+      'tests/**/fixtures/**', // 测试夹具脚本（fake-dsh 等），非源码
     ],
   },
   js.configs.recommended,

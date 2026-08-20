@@ -138,8 +138,11 @@ export class DSHProcessManager extends EventEmitter {
       this.emit('output', { stream: 'stderr', data: chunk.toString('utf-8') });
     });
     child.on('error', (error) => {
+      // spawn 失败（如命令不存在）：不会触发 exit，需手动收尾避免调用方挂起
+      this.child = null;
       this.setStatus('error');
       this.emit('error', error);
+      this.emit('exit', { code: -1, signal: null, restarted: false });
     });
     child.on('exit', (code, signal) => {
       this.child = null;

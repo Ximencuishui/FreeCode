@@ -15,9 +15,9 @@ import type {
   ChatHistory,
 } from './types';
 
-/** FreeCoder 数据根目录 */
+/** FreeCoder 数据根目录（FREECODER_HOME 可覆盖，用于便携/测试隔离） */
 export function getFreeCoderDir(): string {
-  return path.join(os.homedir(), '.freecoder');
+  return process.env.FREECODER_HOME ?? path.join(os.homedir(), '.freecoder');
 }
 
 /** 单文件最大消息数，超过自动归档（数据库文档 4.2.2） */
