@@ -33,4 +33,4 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test:unit -- --runInBand
+      - run: pnpm exec jest --runInBand
