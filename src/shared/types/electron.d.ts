@@ -1,4 +1,11 @@
-import type { ChatSendParams, ChatSendResult, ChatResponseEvent, SignalEvent, ChatHistoryParams, ChatHistoryResult } from './chat';
+import type {
+  ChatSendParams,
+  ChatSendResult,
+  ChatResponseEvent,
+  SignalEvent,
+  ChatHistoryParams,
+  ChatHistoryResult,
+} from './chat';
 import type {
   PreviewStartParams,
   PreviewStartResult,
@@ -18,9 +25,18 @@ import type {
   ProjectGetResult,
   ProjectConfirmParams,
   ProjectConfirmResult,
+  ProjectSelectLocationResult,
 } from './project';
 import type { ExportStartParams, ExportStartResult, ExportCompleteEvent } from './export';
-import type { SettingsGetResult, SettingsUpdateParams, SettingsUpdateResult, ApiKeySaveParams, ApiKeySaveResult, ApiKeyValidateParams, ApiKeyValidateResult } from './settings';
+import type {
+  SettingsGetResult,
+  SettingsUpdateParams,
+  SettingsUpdateResult,
+  ApiKeySaveParams,
+  ApiKeySaveResult,
+  ApiKeyValidateParams,
+  ApiKeyValidateResult,
+} from './settings';
 import type { AppInfo } from './app';
 
 type Unsubscribe = () => void;
@@ -51,6 +67,8 @@ declare global {
         delete: (params: ProjectDeleteParams) => Promise<ProjectDeleteResult>;
         get: (params: ProjectGetParams) => Promise<ProjectGetResult>;
         confirm: (params: ProjectConfirmParams) => Promise<ProjectConfirmResult>;
+        /** 弹出系统文件夹选择器，返回用户选中的保存位置 */
+        selectLocation: () => Promise<ProjectSelectLocationResult>;
       };
       export: {
         start: (params: ExportStartParams) => Promise<ExportStartResult>;

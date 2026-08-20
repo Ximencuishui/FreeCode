@@ -51,6 +51,8 @@ export interface ProjectMeta {
 export interface ProjectCreateOptions {
   description?: string;
   template?: ProjectTemplate;
+  /** 项目保存位置（父目录，绝对路径）。省略时使用默认位置（数据目录下的 Project 目录） */
+  location?: string;
 }
 
 // ========== 需求卡片（数据库文档 3.4） ==========
@@ -120,7 +122,10 @@ export interface StorageManager {
   getRequirements(projectId: string): Promise<Requirements | null>;
   confirmRequirements(projectId: string): Promise<void>;
   // 对话管理
-  saveChatMessage(projectId: string, message: Omit<ChatMessage, 'id' | 'timestamp'>): Promise<ChatMessage>;
+  saveChatMessage(
+    projectId: string,
+    message: Omit<ChatMessage, 'id' | 'timestamp'>,
+  ): Promise<ChatMessage>;
   getChatHistory(projectId: string, limit?: number): Promise<ChatMessage[]>;
   clearChatHistory(projectId: string): Promise<void>;
   // 设置管理
@@ -132,5 +137,7 @@ export interface StorageManager {
   // 路径辅助
   getProjectDir(projectId: string): string;
   getProjectCodePath(projectId: string): string;
+  /** 默认项目保存位置（数据目录下的 Project 目录），未选择自定义位置时使用 */
+  getDefaultProjectsDir(): string;
   ensureProjectDirectories(projectId: string): Promise<void>;
 }

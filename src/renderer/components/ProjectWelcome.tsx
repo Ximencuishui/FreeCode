@@ -1,37 +1,56 @@
 import { useState } from 'react';
 import { useProjectStore } from '../store/project';
 import { useUiStore } from '../store/ui';
+import SaveLocationDialog from './SaveLocationDialog';
 
 /** 项目欢迎卡片：无项目时创建新项目（前端设计说明书 4.4 空状态） */
 export default function ProjectWelcome() {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const createProject = useProjectStore((s) => s.createProject);
   const apiKeyConfigured = useUiStore((s) => s.apiKeyConfigured);
   const openSettings = useUiStore((s) => s.openSettings);
 
-  const handleCreate = async () => {
+  const handleCreate = () => {
     const trimmed = name.trim();
     if (!trimmed) {
       setError('请输入项目名称');
       return;
     }
+    setError('');
+    // 先弹窗询问保存位置：用户可选择文件夹，或跳过使用默认位置
+    setDialogOpen(true);
+  };
+
+  const extractErrorMessage = (raw: unknown): string => {
+    // 运行时 error 可能是 FreeCoderError 对象（类型标注为 string，属历史类型缺口）
+    if (typeof raw === 'string') return raw;
+    if (raw && typeof raw === 'object' && 'message' in raw) {
+      return String((raw as { message: unknown }).message);
+    }
+    return '创建失败，请重试';
+  };
+
+  const handleConfirm = async (location?: string) => {
     setCreating(true);
     setError('');
-    const result = await createProject(trimmed);
+    const result = await createProject(name.trim(), location ? { location } : undefined);
     if (!result.success) {
-      // 运行时 error 可能是 FreeCoderError 对象（类型标注为 string，属历史类型缺口）
-      const raw = result.error as unknown;
-      const message =
-        typeof raw === 'string'
-          ? raw
-          : raw && typeof raw === 'object' && 'message' in raw
-            ? String((raw as { message: unknown }).message)
-            : '创建失败，请重试';
-      setError(message);
+      setError(extractErrorMessage(result.error));
       setCreating(false);
+      // 失败时保持弹窗打开，便于重试或换位置
+      return;
     }
+    // 成功：store 已切换 currentProjectId，欢迎页随即卸载
+    setDialogOpen(false);
+  };
+
+  const handleCancel = () => {
+    if (creating) return;
+    setDialogOpen(false);
+    setError('');
   };
 
   return (
@@ -58,7 +77,7 @@ export default function ProjectWelcome() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleCreate();
+              if (e.key === 'Enter') handleCreate();
             }}
             placeholder="例如：我的记账本"
             className="mt-5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition-colors focus:border-brand"
@@ -66,14 +85,27 @@ export default function ProjectWelcome() {
           {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
           <button
             type="button"
-            disabled={creating || name.trim().length === 0}
-            onClick={() => void handleCreate()}
+            disabled={name.trim().length === 0}
+            onClick={handleCreate}
             className="mt-4 w-full rounded-lg bg-brand py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {creating ? '创建中…' : '开始对话'}
+            开始对话
           </button>
+          <p className="mt-3 text-xs text-slate-400">
+            创建时可以选择保存位置，或使用默认位置（本程序下的 Project 目录）
+          </p>
         </div>
       </div>
+
+      {dialogOpen && (
+        <SaveLocationDialog
+          projectName={name.trim()}
+          creating={creating}
+          error={error}
+          onConfirm={(location) => void handleConfirm(location)}
+          onCancel={handleCancel}
+        />
+      )}
     </div>
   );
 }

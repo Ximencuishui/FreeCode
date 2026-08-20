@@ -20,12 +20,24 @@ export interface ProjectCreateParams {
   name: string;
   description?: string;
   template?: ProjectTemplate;
+  /** 用户选择的保存位置（父目录）。省略时使用默认位置（本程序数据目录下的 Project 目录） */
+  location?: string;
 }
 
 export interface ProjectCreateResult {
   success: boolean;
   projectId?: string;
   projectPath?: string;
+  error?: string;
+}
+
+/** 选择项目保存位置（系统文件夹选择器）结果 */
+export interface ProjectSelectLocationResult {
+  success: boolean;
+  /** 用户取消选择 */
+  canceled: boolean;
+  /** 用户选中的文件夹绝对路径（canceled 时为 undefined） */
+  path?: string;
   error?: string;
 }
 

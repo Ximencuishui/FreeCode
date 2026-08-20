@@ -424,6 +424,7 @@ interface ProjectCreateParams {
   name: string;
   description?: string;
   template?: 'blank' | 'blog' | 'ecommerce' | 'tool';  // 项目模板
+  location?: string;   // 项目保存位置（父目录，绝对路径）；省略时使用默认位置（本程序数据目录下的 Project 目录）
 }
 ```
 
@@ -437,6 +438,30 @@ interface ProjectCreateResult {
   error?: string;
 }
 ```
+
+
+#### 4.3.2.1 选择项目保存位置
+
+| 属性 | 值 |
+|------|-----|
+| **通道名** | `project:select-location` |
+| **方向** | 渲染进程 → 主进程 |
+| **模式** | 请求-响应（invoke） |
+
+**参数**：无。
+
+**返回值**：
+
+```typescript
+interface ProjectSelectLocationResult {
+  success: boolean;
+  canceled: boolean;     // 用户取消选择
+  path?: string;         // 用户选中的文件夹绝对路径（canceled 时为 undefined）
+  error?: string;
+}
+```
+
+创建项目时，渲染进程先调用本接口弹出系统文件夹选择器询问保存位置；用户可取消（跳过），此时 `project:create` 不传 `location`，项目默认保存到本程序数据目录下的 `Project` 目录。
 
 
 #### 4.3.3 删除项目
@@ -874,6 +899,7 @@ declare global {
 | Project | `project:create` | 渲染→主 | invoke |
 | Project | `project:delete` | 渲染→主 | invoke |
 | Project | `project:get` | 渲染→主 | invoke |
+| Project | `project:select-location` | 渲染→主 | invoke |
 | Export | `export:start` | 渲染→主 | invoke |
 | Export | `export:complete` | 主→渲染 | on |
 | Settings | `settings:get` | 渲染→主 | invoke |
@@ -888,6 +914,7 @@ declare global {
 
 | 版本 | 日期 | 变更说明 |
 |------|------|---------|
+| v1.1 | 2026-08-19 | 新增 `project:select-location` 通道，`project:create` 支持 `location` 参数（自定义保存位置） |
 | v1.0 | 2026-08-19 | 初始版本，定义 21 个核心接口 |
 
 

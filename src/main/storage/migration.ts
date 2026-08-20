@@ -4,7 +4,7 @@ import type { StoredSettings } from './types';
 export function defaultSettings(): StoredSettings {
   return {
     version: '1.0',
-    projectsPath: '~/.freecoder/projects',
+    projectsPath: '~/.freecoder/Project',
     language: 'zh-CN',
     darkMode: false,
     telemetryEnabled: false,

@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, dialog, type OpenDialogOptions } from 'electron';
 import { IpcChannels } from '../../shared/types/ipc';
 import type {
   ProjectListResult,
@@ -10,6 +10,7 @@ import type {
   ProjectGetResult,
   ProjectConfirmParams,
   ProjectConfirmResult,
+  ProjectSelectLocationResult,
 } from '../../shared/types/project';
 import type { SignalEvent } from '../../shared/types/chat';
 import type { StorageManager } from '../storage/types';
@@ -47,12 +48,34 @@ export function registerProjectIpc(storage: StorageManager, developer: Developer
       const meta = await storage.createProject(params.name.trim(), {
         description: params.description,
         template: params.template,
+        location: params.location,
       });
       return {
         success: true,
         projectId: meta.id,
         projectPath: storage.getProjectDir(meta.id),
       };
+    },
+  );
+
+  // 选择项目保存位置（系统文件夹选择器）。用户可取消，取消后由渲染层走"跳过"逻辑
+  handleIpc<undefined, ProjectSelectLocationResult>(
+    IpcChannels.projectSelectLocation,
+    async (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+      const options: OpenDialogOptions = {
+        title: '选择项目保存位置',
+        defaultPath: storage.getDefaultProjectsDir(),
+        buttonLabel: '保存到此位置',
+        properties: ['openDirectory', 'createDirectory'],
+      };
+      const result = win
+        ? await dialog.showOpenDialog(win, options)
+        : await dialog.showOpenDialog(options);
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: true, canceled: true };
+      }
+      return { success: true, canceled: false, path: result.filePaths[0] };
     },
   );
 
