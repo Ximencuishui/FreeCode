@@ -1,5 +1,6 @@
 import type { ChatMessage, Requirements } from '../storage/types';
 import type { ElementInfo } from '../../shared/types/preview';
+import type { VersionPlan } from '../../shared/types/project';
 
 /**
  * AI 助理对话任务构建。
@@ -70,14 +71,22 @@ export function buildAssistantTask(input: BuildTaskInput): string {
   return parts.join('\n');
 }
 
-/** 开发任务：根据已确认需求生成完整可运行的静态 Web 应用 */
-export function buildDevelopmentTask(requirements: Requirements | null): string {
+/** 开发任务：根据已确认需求生成完整可运行的静态 Web 应用（聚焦 V1/MVP 功能子集） */
+export function buildDevelopmentTask(
+  requirements: Requirements | null,
+  versionPlan?: VersionPlan | null,
+): string {
+  // 有版本计划时只开发 V1（最小可用版本），避免一次性堆砌全部功能
+  const v1Features = versionPlan?.versions[0]?.features;
+  const coreFeatures =
+    v1Features && v1Features.length > 0 ? v1Features : (requirements?.coreFeatures ?? []);
+
   const reqText = requirements
     ? JSON.stringify(
         {
           goal: requirements.goal,
           targetUsers: requirements.targetUsers,
-          coreFeatures: requirements.coreFeatures,
+          coreFeatures,
           useScenarios: requirements.useScenarios,
           dataRequirements: requirements.dataRequirements,
           visualStyle: requirements.visualStyle,
@@ -88,19 +97,68 @@ export function buildDevelopmentTask(requirements: Requirements | null): string 
       )
     : '（无需求说明，请向用户确认）';
 
+  const mvpNote =
+    v1Features && v1Features.length > 0
+      ? `\n【重要】本次只开发 V1（最小可用版本），功能范围仅限上面列出的 coreFeatures，其余功能不要实现。\n`
+      : '';
+
   return `你是 FreeCoder 的全栈开发工程师。请根据以下需求，在当前工作目录生成一个完整可运行的 Web 应用：
 
 【需求】
 ${reqText}
-
+${mvpNote}
 【技术要求】
 1. 使用纯 HTML + CSS + JavaScript（单页应用，无需构建步骤，双击 index.html 即可运行）
-2. 数据持久化使用浏览器 localStorage
+2. 数据持久化使用后端通用数据 API（不要使用 localStorage），通过 FreeCoderAuth.data() 操作
 3. 至少生成 index.html、style.css、app.js 三个文件
 4. 界面简洁美观，使用中文界面，符合需求中的视觉风格
 5. 确保应用功能完整可交互
+6. 登录与数据系统已内置（登录窗口由 auth.js 提供，后端由 server.js 提供），请按以下方式集成：
+   - 在 index.html 中引入 <script src="auth.js"></script>
+   - 页面加载时调用 window.FreeCoderAuth.init()（恢复登录状态）
+   - 需要登录后才能使用的功能：在 JS 中调用 await window.FreeCoderAuth.requireLogin()，未登录时会自动弹出登录窗口，登录后返回当前用户；用户取消登录则返回 null，此时应提示"请先登录"
+   - 用 window.FreeCoderAuth.isLoggedIn() 判断登录状态，window.FreeCoderAuth.logout() 登出
+   - 业务数据使用后端集合 API（每个用户数据互相隔离）：
+       const db = window.FreeCoderAuth.data('集合名'); // 集合名用英文，如 todos / records / notes
+       // 列表查询（支持分页/搜索/排序）：
+        const result = await db.list({ page: 1, pageSize: 20, sort: 'createdAt', order: 'desc', search: '关键词' });
+        // result.items → 数据数组, result.pagination → { page, pageSize, total, totalPages }
+        // 不传参数则返回全部：const all = await db.list();
+       const item = await db.create({...});   // 新建（自动生成 id / createdAt / updatedAt）
+       const updated = await db.update(id, {...}); // 更新
+       await db.remove(id);                   // 删除
+     未登录时调用 data() 会自动弹出登录窗口，登录后继续操作
+   - 不要修改或删除 auth.js、server.js 两个文件
 
 完成后回复一句话总结（例如：已完成记账应用开发）。`;
+}
+
+/** 版本分段任务：基于已确认需求，把功能切分为 V1（MVP）与后续版本 */
+export function buildVersionPlanTask(requirements: Requirements): string {
+  return `你是 FreeCoder 的产品经理。用户已确认以下需求，但非技术用户容易追求大而全。请帮用户把功能按版本切分，先做一个最小可用版本（MVP）。
+
+【已确认需求】
+${JSON.stringify(
+    {
+      goal: requirements.goal,
+      targetUsers: requirements.targetUsers,
+      coreFeatures: requirements.coreFeatures,
+      useScenarios: requirements.useScenarios,
+      visualStyle: requirements.visualStyle,
+    },
+    null,
+    2,
+  )}
+
+【切分原则】
+1. V1 只保留最核心、没有它应用就不成立的功能（通常 1-3 个），保证快速可用
+2. 其余功能放入 V2（以及必要时 V3），作为后续完善
+3. 每个版本的 description 用一句通俗的话说明该版本能做什么
+4. features 必须从上面 coreFeatures 中原样选取，不要新增或改写
+
+只输出一个 JSON 对象，不要输出任何其他文字，格式如下：
+{"versions":[{"label":"V1","description":"一句话说明","features":["功能1"]},{"label":"V2","description":"一句话说明","features":["功能2","功能3"]}]}
+`;
 }
 
 /** 修改任务：基于现有代码实施用户的口语修改指令 */
@@ -133,6 +191,7 @@ ${elementText}
 1. 直接编辑现有文件实施修改，保持应用可运行（不要重建整个项目）
 2. 修改要具体、最小化，优先改动 CSS 样式
 3. 保持界面整体风格一致
+4. 不要修改或删除 auth.js、server.js，保持现有登录集成不变
 
 完成后用一句话回复改了什么（例如：已将标题颜色调整为天蓝色 #4A90D9）。`;
 }

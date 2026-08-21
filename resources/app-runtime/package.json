@@ -1,0 +1,9 @@
+{
+  "name": "freecoder-app-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FreeCoder 生成应用的后端运行时",
+  "dependencies": {
+    "sql.js": "^1.12.0"
+  }
+}
