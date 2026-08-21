@@ -1,8 +1,8 @@
 # FreeCoder 测试计划与用例
 
-**版本**：1.0
+**版本**：2.0
 **状态**：定稿
-**更新日期**：2026-08-19
+**更新日期**：2026-08-21
 **适用版本**：FreeCoder 0.1.x
 
 
@@ -146,6 +146,9 @@ pnpm test
 | UT-STO-003 | 原子写入 | 写入过程中断，数据不损坏 |
 | UT-STO-004 | 读取不存在的项目 | 返回 null，不抛异常 |
 | UT-STO-005 | 对话历史归档 | 超过 1000 条自动归档 |
+| UT-STO-006 | 自定义保存位置创建项目 | 项目在指定 location 下创建，meta.json.codePath 正确 |
+| UT-STO-007 | 默认保存位置回退 | 未传 location 时使用 getDefaultProjectsDir() |
+| UT-STO-008 | Settings provider/baseUrl/model 持久化 | 保存后读取值一致 |
 
 #### 4.2.4 加密模块测试
 
@@ -155,6 +158,25 @@ pnpm test
 | UT-ENC-002 | API Key 解密 | 解密后等于原文 |
 | UT-ENC-003 | 无 Key 时加载 | 返回 null，不抛异常 |
 | UT-ENC-004 | 损坏数据解密 | 抛异常，不崩溃 |
+| UT-ENC-005 | safeStorage 不可用降级 | 降级为 Base64 存储，UI 显示安全警告 |
+
+#### 4.2.5 SaveLocationDialog 组件测试
+
+| 用例 ID | 测试场景 | 验证点 |
+|---------|---------|--------|
+| UT-SLD-001 | 弹窗渲染 | 显示默认保存位置路径 |
+| UT-SLD-002 | 选择自定义位置 | 调用系统文件夹选择器，路径更新 |
+| UT-SLD-003 | 确认回调 | 点击确认后返回选中路径 |
+| UT-SLD-004 | 取消操作 | 点击取消返回 null/undefined |
+
+#### 4.2.6 ApiKeyModal 组件测试
+
+| 用例 ID | 测试场景 | 验证点 |
+|---------|---------|--------|
+| UT-AKM-001 | 提供商切换 | DeepSeek / OpenAI 兼容切换时表单字段正确显示 |
+| UT-AKM-002 | 自定义接口字段 | 选择 openai-compatible 时 baseUrl/model 输入框可见 |
+| UT-AKM-003 | 验证失败提示 | 无效 Key 显示错误信息 |
+| UT-AKM-004 | 首启自动弹出 | firstLaunch=true 且未配置 Key 时自动显示 |
 
 
 ## 五、集成测试
@@ -574,11 +596,58 @@ pnpm test
 ```
 
 
-## 十五、版本历史
+## 十五、新增功能测试补充（v2.0）
+
+### 15.1 生成应用后端测试
+
+> 针对 `resources/app-runtime/` 的 SQLite + OAuth + 分页搜索排序功能。
+
+#### 15.1.1 SQLite 存储测试
+
+| 用例 ID | 测试场景 | 验证点 |
+|---------|---------|--------|
+| UT-RT-001 | 数据库初始化 | data/app.db 创建成功，表结构正确 |
+| UT-RT-002 | 用户注册/登录 | 密码哈希存储，JWT 签发正确 |
+| UT-RT-003 | 集合 CRUD | create/read/update/delete 操作正确 |
+| UT-RT-004 | 分页查询 | page/pageSize 参数生效，total/totalPages 正确 |
+| UT-RT-005 | 排序查询 | sort/order 参数生效 |
+| UT-RT-006 | 搜索查询 | search 关键词模糊匹配 data JSON |
+| UT-RT-007 | 并发写入 | 多请求并发不丢数据 |
+
+#### 15.1.2 OAuth 登录测试
+
+| 用例 ID | 测试场景 | 验证点 |
+|---------|---------|--------|
+| UT-OA-001 | GitHub OAuth 流程 | 授权 URL 正确，回调处理 Token 交换 |
+| UT-OA-002 | Google OAuth 流程 | openid scope 正确，userinfo 解析 |
+| UT-OA-003 | 微信 OAuth 流程 | snsapi_login scope 正确 |
+| UT-OA-004 | OAuth state 过期 | 过期 state 被拒绝 |
+| UT-OA-005 | 账号关联 | 已有用户绑定第三方 ID 后登录正确关联 |
+
+#### 15.1.3 数据迁移测试
+
+| 用例 ID | 测试场景 | 验证点 |
+|---------|---------|--------|
+| UT-MG-001 | JSON→SQLite 迁移 | users.json → users 表数据一致 |
+| UT-MG-002 | 集合迁移 | collections/*.json → collection_items 表 |
+| UT-MG-003 | 备份保留 | 原始 JSON 文件重命名为 .bak |
+| UT-MG-004 | 重复迁移幂等 | 已迁移数据不重复插入 |
+
+### 15.2 预览服务器增强测试
+
+| 用例 ID | 测试场景 | 验证点 |
+|---------|---------|--------|
+| IT-PRV-006 | ApiHandler 兼容重定向 | OAuth 回调 302 正确处理 |
+| IT-PRV-007 | ApiHandler HTML 响应 | OAuth 弹窗 HTML 正确返回 |
+| IT-PRV-008 | 运行时依赖注入 | package.json 和 sql.js WASM 复制到预览目录 |
+
+
+## 十六、版本历史
 
 | 版本 | 日期 | 变更说明 |
 |------|------|---------|
 | v1.0 | 2026-08-19 | 初始版本，覆盖单元测试、集成测试、E2E 测试、性能测试、兼容性测试、安全测试 |
+| v2.0 | 2026-08-21 | 新增 SaveLocationDialog / ApiKeyModal 组件测试；新增存储模块自定义位置与多提供商测试；新增加密降级测试；新增生成应用后端 SQLite/OAuth/迁移测试；新增预览服务器增强测试 |
 
 
 **文档结束**

@@ -281,14 +281,18 @@ AI 助理实时监听 DSH 底层输出，将技术信号翻译为用户友好的
 ```
 用户下载安装 FreeCoder
         ↓
-首次启动 → 提示：请输入您的 DeepSeek API Key
+首次启动 → 自动弹出 API Key 配置引导弹窗
         ↓
-用户输入 API Key（本地存储，不上传）
+选择提供商（DeepSeek 官方 / OpenAI 兼容自定义接口）
+        ↓
+输入 API Key（可选填 Base URL、模型名）
         ↓
 验证 API Key 有效性
         ↓
 ✅ 进入主界面，开始使用
 ```
+
+> **v3.1 变更**：首启引导从简单输入框升级为 `ApiKeyModal` 配置弹窗，支持多提供商选择和自定义接口配置。未配置 API Key 时标题栏/状态栏显示配置状态提示。
 
 ### 3.4 Hermes Agent 范式
 
@@ -341,8 +345,9 @@ const signalMap = [
 
 ### 4.2 安全与隐私
 
-- 所有项目代码存储在 `~/.freecoder/projects/` 目录
-- DeepSeek API Key 本地加密存储（Electron `safeStorage`）
+- 所有项目代码存储在 `~/.freecoder/projects/` 目录（支持自定义保存位置）
+- API Key 本地加密存储：优先使用 Electron `safeStorage`，不可用时降级为 Base64 存储并告警
+- 支持 DeepSeek 官方及 OpenAI 兼容自定义接口（provider / baseUrl / model 可配置）
 - 没有任何数据上传到任何服务器
 - 代码运行在 DSH 沙箱隔离环境
 - 不收集任何用户数据，不发送任何统计信息
@@ -359,7 +364,8 @@ const signalMap = [
 
 - **开源协议**：MIT
 - **依赖审计**：所有依赖包兼容 MIT / Apache 2.0 / BSD
-- **第三方服务**：唯一外部依赖是 DeepSeek API（用户自行配置）
+- **第三方服务**：外部依赖为用户自行配置的 LLM API（DeepSeek 官方或 OpenAI 兼容接口）
+- **官网**：提供 `website/` 宣传页，含 Vercel 部署配置与 DSH 智能体引擎介绍
 
 
 ## 五、后续商业化路径（非 0.1.x 版本）
@@ -487,13 +493,59 @@ FreeCoder 欢迎所有形式的贡献：
 | 自助导出 | 生成部署包和部署指引的功能 |
 
 
-## 九、版本历史
+## 九、生成应用后端运行时
+
+> **v3.1 新增章节**：定义 FreeCoder 生成的应用在后端运行时的能力。
+
+### 9.1 概述
+
+FreeCoder 生成的应用包含一个完整的后端运行时（`resources/app-runtime/`），提供用户认证、数据持久化和 OAuth 登录等能力。
+
+### 9.2 核心能力
+
+| 能力 | 说明 |
+|------|------|
+| **SQLite 存储** | 使用 sql.js（SQLite WASM）替代 JSON 文件，支持并发安全 |
+| **分页搜索排序** | 集合 API 支持 `page`/`pageSize`/`sort`/`order`/`search` 参数 |
+| **OAuth 登录** | 支持 GitHub / Google / 微信三种第三方登录 |
+| **JWT 认证** | HMAC-SHA256 自实现 JWT，支持 Token 过期与刷新 |
+| **环境变量** | 通过 `.env` 文件配置 OAuth 凭证、JWT 密钥等 |
+
+### 9.3 预览模式与部署模式
+
+- **预览模式**：被 FreeCoder 预览服务器 `require`，仅导出 `handleApi` 函数
+- **部署模式**：独立启动 HTTP 服务器，同时托管静态文件和 API
+
+
+## 十、项目保存位置
+
+> **v3.1 新增章节**：支持用户自定义项目保存位置。
+
+### 10.1 功能说明
+
+用户在创建项目时可通过 `SaveLocationDialog` 选择自定义保存位置，而非强制使用默认的 `~/.freecoder/projects/` 目录。
+
+### 10.2 交互流程
+
+```
+用户点击"新建项目"
+        ↓
+弹出 SaveLocationDialog
+        ↓
+显示默认保存位置 / 选择自定义位置
+        ↓
+确认 → 项目在指定位置创建
+```
+
+
+## 十一、版本历史
 
 | 版本 | 日期 | 变更说明 |
 |------|------|---------|
 | v1.0 | 2026-08-10 | 初始版本（基于云端 Web 方案） |
 | v2.0 | 2026-08-19 | 三大模块 + Hermes 范式 + DSH 底座 |
 | v3.0 | 2026-08-19 | **确定开源桌面端定位，移除云服务依赖，新增自助导出功能** |
+| v3.1 | 2026-08-21 | **API Key 多提供商支持、首启引导弹窗、加密降级；项目保存位置；生成应用后端 SQLite + OAuth + 分页搜索排序；官网宣传页** |
 
 
 **文档结束**

@@ -1,25 +1,25 @@
 # FreeCoder 数据库设计文档（本地存储方案）
 
-**版本**：1.0  
+**版本**：2.0  
 **状态**：定稿  
-**更新日期**：2026-08-19  
+**更新日期**：2026-08-21  
 **适用版本**：FreeCoder 0.1.x
 
 
 ## 一、文档说明
 
 ### 1.1 文档目的
-本文档定义 FreeCoder 桌面应用中**所有本地数据的存储结构**，包括项目文件、对话历史、用户设置、API Key 等的存储格式和读写规范。
+本文档定义 FreeCoder 桌面应用中**所有本地数据的存储结构**，包括项目文件、对话历史、用户设置、API Key 等的存储格式和读写规范。同时定义**生成应用的后端运行时存储方案**。
 
 ### 1.2 设计原则
 
 | 原则 | 说明 |
 |------|------|
-| **文件即数据库** | 不使用 SQLite/IndexedDB，采用文件系统 + JSON 存储，便于用户查看和备份 |
-| **人类可读** | 所有 JSON 文件格式化存储，用户可用文本编辑器打开查看 |
-| **增量写入** | 对话历史等频繁写入的数据采用追加模式，减少文件重写 |
+| **双层存储架构** | FreeCoder 本体使用 JSON 文件存储；生成的应用后端使用 SQLite（sql.js WASM） |
+| **人类可读** | FreeCoder 本体的 JSON 文件格式化存储，用户可用文本编辑器打开查看 |
+| **并发安全** | 生成应用后端使用 SQLite 保证多请求并发下的数据一致性 |
 | **原子操作** | 写入操作先写临时文件，再重命名替换，防止数据损坏 |
-| **版本兼容** | 存储结构包含版本号，支持未来升级迁移 |
+| **版本兼容** | 存储结构包含版本号，支持未来升级迁移；提供 JSON→SQLite 迁移脚本 |
 
 ### 1.3 相关文档
 - FreeCoder 技术架构设计文档 v1.0
@@ -76,6 +76,12 @@ interface Settings {
   language: 'zh-CN' | 'en-US';       // 界面语言
   darkMode: boolean;                 // 深色模式
   telemetryEnabled: false;           // 固定为 false（无遥测）
+  /** 大模型提供商（默认 DeepSeek 官方） */
+  provider: 'deepseek' | 'openai-compatible';
+  /** 自定义接口 Base URL（如 https://api.deepseek.com） */
+  baseUrl?: string;
+  /** 模型名（如 deepseek-chat） */
+  model?: string;
   preview: {
     autoOpen: boolean;               // 代码生成后自动打开预览
     portRange: [number, number];     // 预览端口范围，默认 [3000, 3010]
@@ -99,6 +105,9 @@ interface Settings {
   "language": "zh-CN",
   "darkMode": false,
   "telemetryEnabled": false,
+  "provider": "deepseek",
+  "baseUrl": "",
+  "model": "",
   "preview": {
     "autoOpen": true,
     "portRange": [3000, 3010]
@@ -112,14 +121,16 @@ interface Settings {
 }
 ```
 
+> **v2.0 变更**：新增 `provider`、`baseUrl`、`model` 字段，支持 DeepSeek 官方及 OpenAI 兼容自定义接口。
+
 
 ### 3.2 API Key 存储（api-key.encrypted）
 
 **存储路径**：`~/.freecoder/api-key.encrypted`
 
 - **格式**：Base64 编码的加密字符串
-- **加密方式**：Electron `safeStorage.encryptString()`
-- **解密方式**：Electron `safeStorage.decryptString()`
+- **加密方式**：优先使用 Electron `safeStorage.encryptString()`；若不可用则降级为本地 Base64 存储并告警
+- **解密方式**：Electron `safeStorage.decryptString()` 或 Base64 解码（降级模式）
 - **明文不落盘**：解密后的 Key 只在内存中存在
 
 **存储示例**（Base64 编码后）：
@@ -127,6 +138,8 @@ interface Settings {
 ```
 dGVzdC1rZXktdmFsdWUtZm9yLWRlbW9uc3RyYXRpb24tcHVycG9zZXM=
 ```
+
+> **v2.0 变更**：新增加密降级机制，当 `safeStorage` 不可用时自动切换为 Base64 存储并在 UI 显示安全警告。
 
 
 ### 3.3 项目元数据（meta.json）
@@ -637,11 +650,168 @@ export async function atomicWrite(filePath: string, data: any): Promise<void> {
 ```
 
 
-## 九、版本历史
+## 九、生成应用后端运行时存储（SQLite）
+
+> **v2.0 新增章节**：定义 FreeCoder 生成的应用在后端运行时使用的存储方案。
+
+### 9.1 概述
+
+FreeCoder 生成的应用后端（`resources/app-runtime/server.js`）使用 **sql.js（SQLite WASM）** 作为持久化存储，替代早期的 JSON 文件方案，以支持并发安全和更丰富的查询能力。
+
+### 9.2 数据库文件
+
+- **路径**：`{app-runtime}/data/app.db`
+- **格式**：SQLite 3 二进制文件
+- **WASM 依赖**：`sql.js` 模块，运行时加载 `sql-wasm.wasm`
+
+### 9.3 数据表结构
+
+#### users 表
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  username TEXT UNIQUE,
+  salt TEXT,
+  password_hash TEXT,
+  github_id TEXT UNIQUE,
+  google_id TEXT UNIQUE,
+  wechat_openid TEXT UNIQUE,
+  avatar_url TEXT,
+  display_name TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+```
+
+#### collection_items 表（通用集合存储）
+
+```sql
+CREATE TABLE IF NOT EXISTS collection_items (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  collection TEXT NOT NULL,
+  data TEXT NOT NULL,              -- JSON 字符串
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_collection_user
+  ON collection_items(user_id, collection);
+
+CREATE INDEX IF NOT EXISTS idx_collection_updated
+  ON collection_items(user_id, collection, updated_at DESC);
+```
+
+#### oauth_states 表
+
+```sql
+CREATE TABLE IF NOT EXISTS oauth_states (
+  state TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  redirect_uri TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+```
+
+### 9.4 集合 API（分页 / 搜索 / 排序）
+
+生成应用后端提供通用集合 CRUD API，支持以下查询参数：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `page` | number | 页码，从 1 开始，默认 1 |
+| `pageSize` | number | 每页条数，默认 20，最大 100 |
+| `sort` | string | 排序字段，默认 `updated_at` |
+| `order` | `'asc' \| 'desc'` | 排序方向，默认 `desc` |
+| `search` | string | 模糊搜索关键词（匹配 data JSON 内容） |
+
+**响应格式**：
+
+```json
+{
+  "items": [...],
+  "total": 42,
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 3
+}
+```
+
+### 9.5 OAuth 第三方登录
+
+支持 GitHub / Google / 微信三种 OAuth 登录方式，配置通过 `.env` 文件注入：
+
+| 环境变量 | 说明 |
+|---------|------|
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth App 凭证 |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 客户端凭证 |
+| `WECHAT_APP_ID` / `WECHAT_APP_SECRET` | 微信开放平台网站应用凭证 |
+| `OAUTH_REDIRECT_BASE` | OAuth 回调基础 URL，默认 `http://localhost:3000` |
+| `JWT_SECRET` | JWT 签名密钥 |
+| `JWT_EXPIRES_IN` | JWT 有效期（天），默认 7 |
+
+### 9.6 数据迁移
+
+提供 `migrate-json-to-sqlite.js` 脚本，将早期 JSON 文件存储迁移至 SQLite：
+
+```bash
+node migrate-json-to-sqlite.js
+```
+
+迁移逻辑：
+1. 读取 `data/users.json` → 写入 `users` 表
+2. 读取 `data/collections/*.json` → 写入 `collection_items` 表
+3. 保留原始 JSON 文件作为备份（`.bak`）
+
+### 9.7 Dockerfile 运行时依赖
+
+导出的部署包 Dockerfile 中包含 `npm install` 步骤，确保 `sql.js` 等运行时依赖被正确安装。
+
+
+## 十、项目保存位置
+
+> **v2.0 新增章节**：支持用户自定义项目保存位置。
+
+### 10.1 功能说明
+
+用户在创建项目时可选择自定义保存位置（父目录），而非强制使用默认的 `~/.freecoder/projects/` 目录。
+
+### 10.2 ProjectCreateOptions 扩展
+
+```typescript
+interface ProjectCreateOptions {
+  description?: string;
+  template?: ProjectTemplate;
+  /** 项目保存位置（父目录，绝对路径）。省略时使用默认位置 */
+  location?: string;
+}
+```
+
+### 10.3 StorageManager 扩展
+
+新增方法：
+
+```typescript
+/** 默认项目保存位置（数据目录下的 Project 目录），未选择自定义位置时使用 */
+getDefaultProjectsDir(): string;
+```
+
+### 10.4 UI 组件
+
+新增 `SaveLocationDialog` 组件，在创建项目时弹出，允许用户：
+- 查看当前默认保存位置
+- 通过系统文件夹选择器选择自定义位置
+- 记住上次选择的位置
+
+
+## 十一、版本历史
 
 | 版本 | 日期 | 变更说明 |
 |------|------|---------|
 | v1.0 | 2026-08-19 | 初始版本，定义存储结构 |
+| v2.0 | 2026-08-21 | 新增生成应用后端 SQLite 存储方案（第九章）；新增项目保存位置功能（第十章）；Settings 新增 provider/baseUrl/model 字段；API Key 加密降级机制 |
 
 
 **文档结束**
