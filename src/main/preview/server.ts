@@ -187,15 +187,18 @@ export class PreviewServer extends EventEmitter {
       const status = typeof result.status === 'number' ? result.status : 500;
 
       // OAuth 异步 token 交换：需要调用 exchangeOAuthToken
-      if ((result as any)._asyncOAuth) {
+      if (result._asyncOAuth) {
         try {
           const serverPath = path.join(this.projectPath!, 'server.js');
           const require = createRequire(__filename);
-          const mod = require(serverPath) as { exchangeOAuthToken?: (p: string, c: string) => Promise<any> };
+          const mod = require(serverPath) as {
+            exchangeOAuthToken?: (p: string, c: string) => Promise<unknown>;
+          };
           if (typeof mod.exchangeOAuthToken === 'function') {
+            const oauthBody = (result.body ?? {}) as { provider?: string; code?: string };
             const oauthResult = await mod.exchangeOAuthToken(
-              (result.body as any).provider,
-              (result.body as any).code,
+              oauthBody.provider ?? '',
+              oauthBody.code ?? '',
             );
             res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify(oauthResult));
@@ -203,15 +206,16 @@ export class PreviewServer extends EventEmitter {
             res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ error: '后端不支持 OAuth token 交换' }));
           }
-        } catch (e: any) {
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : '未知错误';
           res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify({ error: 'OAuth 处理出错: ' + (e?.message || '未知错误') }));
+          res.end(JSON.stringify({ error: 'OAuth 处理出错: ' + msg }));
         }
         return;
       }
 
       // HTML 响应（OAuth 回调页面等）
-      if ((result as any)._isHtml) {
+      if (result._isHtml) {
         const contentType = result.headers?.['Content-Type'] || 'text/html; charset=utf-8';
         res.writeHead(status, { 'Content-Type': contentType });
         res.end(typeof result.body === 'string' ? result.body : JSON.stringify(result.body));

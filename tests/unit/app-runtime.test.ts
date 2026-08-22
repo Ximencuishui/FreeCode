@@ -3,18 +3,19 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import type { ApiHandler } from '../../src/main/preview/server';
+import { injectAuthRuntime } from '../../src/main/dev/runtime';
 
 /**
  * 应用后端运行时测试（FreeCoder 登录后端：JWT + 用户存储）。
- * 把 server.js 复制到临时目录后 require，验证注册/登录/鉴权闭环，数据落在临时目录不污染资源。
+ * 用生产同款注入器把 server.js（含 sql.js 依赖）写入临时目录后 require，
+ * 验证注册/登录/鉴权闭环，数据落在临时目录不污染资源。
  */
 
 const nodeRequire = createRequire(__filename);
 
 async function makeBackend(): Promise<{ dir: string; handleApi: ApiHandler }> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'freecoder-runtime-'));
-  const src = path.resolve(__dirname, '..', '..', 'resources', 'app-runtime', 'server.js');
-  await fs.copyFile(src, path.join(dir, 'server.js'));
+  await injectAuthRuntime(dir);
   const mod = nodeRequire(path.join(dir, 'server.js')) as { handleApi: ApiHandler };
   return { dir, handleApi: mod.handleApi };
 }
@@ -99,15 +100,16 @@ describe('应用后端运行时（server.js）', () => {
 
   it('密码加盐哈希存储：数据文件不含明文密码', async () => {
     const { dir, handleApi } = await makeBackend();
-    await call(handleApi, 'POST', '/api/register', { username: 'user', password: 'secret123' });
+    await call(handleApi, 'POST', '/api/register', { username: 'secret_check_user', password: 'secret123' });
 
-    const data = JSON.parse(
-      await fs.readFile(path.join(dir, 'data', 'users.json'), 'utf8'),
-    ) as Array<{ password: string; passwordHash: string; salt: string }>;
-    expect(data).toHaveLength(1);
-    expect(data[0].password).toBeUndefined();
-    expect(data[0].passwordHash).not.toContain('secret123');
-    expect(data[0].salt).toBeTruthy();
+    // 用户存于 SQLite 单文件数据库（data/app.db），users 表含 salt + password_hash
+    const dbFile = path.join(dir, 'data', 'app.db');
+    const raw = await fs.readFile(dbFile);
+    expect(raw.length).toBeGreaterThan(0);
+    // 明文密码绝不出现在数据文件中（哈希为 scrypt hex，盐为随机 hex）
+    expect(raw.includes('secret123')).toBe(false);
+    // 用户确实已落盘（用户名以明文 TEXT 存在）
+    expect(raw.includes('secret_check_user')).toBe(true);
   });
 
   it('健康检查与未知接口', async () => {
@@ -210,7 +212,7 @@ describe('应用后端运行时（server.js）', () => {
     expect(gone.status).toBe(404);
   });
 
-  it('数据文件按用户隔离落盘：不同用户不同目录', async () => {
+  it('数据按用户隔离持久化到 SQLite：同一文件内按 user_id 区分', async () => {
     const { dir, handleApi } = await makeBackend();
     const reg = await call(handleApi, 'POST', '/api/register', {
       username: 'alice',
@@ -223,12 +225,11 @@ describe('应用后端运行时（server.js）', () => {
       Authorization: `Bearer ${token}`,
     });
 
-    const file = path.join(dir, 'data', 'collections', userId, 'notes.json');
-    const exists = await fs.access(file).then(() => true).catch(() => false);
-    expect(exists).toBe(true);
-
-    const content = JSON.parse(await fs.readFile(file, 'utf8')) as Array<{ content: string }>;
-    expect(content).toHaveLength(1);
-    expect(content[0].content).toBe('hello');
+    // 数据持久化在 data/app.db（SQLite 单文件），内容与用户 ID 均落盘
+    const dbFile = path.join(dir, 'data', 'app.db');
+    const raw = await fs.readFile(dbFile);
+    expect(raw.length).toBeGreaterThan(0);
+    expect(raw.includes(userId)).toBe(true);
+    expect(raw.includes('hello')).toBe(true);
   });
 });

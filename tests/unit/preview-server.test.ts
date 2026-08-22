@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import net from 'node:net';
 import http from 'node:http';
 import { PreviewServer, findAvailablePort } from '../../src/main/preview/server';
+import { injectAuthRuntime } from '../../src/main/dev/runtime';
 
 /**
  * 预览服务器单元测试（测试计划 5.2.3 IT-PRV-001~005）。
@@ -176,8 +177,7 @@ describe('预览服务器（IT-PRV）', () => {
   it('/api 转发：带 server.js 时注册/登录/me 全流程可用', async () => {
     const dir = await makeProjectDir();
     // 注入标准后端运行时（与主工作流注入一致）
-    const runtime = path.resolve(__dirname, '..', '..', 'resources', 'app-runtime', 'server.js');
-    await fs.copyFile(runtime, path.join(dir, 'server.js'));
+    await injectAuthRuntime(dir);
 
     const server = new PreviewServer();
     try {
@@ -228,8 +228,7 @@ describe('预览服务器（IT-PRV）', () => {
 
   it('/api/data 转发：业务数据 CRUD 走后端，按用户隔离', async () => {
     const dir = await makeProjectDir();
-    const runtime = path.resolve(__dirname, '..', '..', 'resources', 'app-runtime', 'server.js');
-    await fs.copyFile(runtime, path.join(dir, 'server.js'));
+    await injectAuthRuntime(dir);
 
     const server = new PreviewServer();
     try {
