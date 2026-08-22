@@ -159,6 +159,7 @@
       </a>
       <nav class="nav-links" aria-label="主导航">
         <a href="#features">核心功能</a>
+        <a href="#demo">实时演示</a>
         <a href="#how">工作原理</a>
         <a href="#why">为什么选择</a>
         <a href="#tech">技术栈</a>
@@ -207,8 +208,17 @@
           </div>
           <p class="hero-meta">自备 DeepSeek API Key 即用 · 无需月费 · Windows 已就绪，macOS / Linux 即将推出</p>
         </div>
+      </div>
+    </section>
 
-        <!-- 产品窗口模拟 -->
+    <!-- ========== 实时演示（Hero 下方独立区块） ========== -->
+    <section class="demo" id="demo">
+      <div class="demo-inner">
+        <div class="section-head reveal">
+          <span class="kicker">实时演示</span>
+          <h2>像这样，几分钟从想法到可运行软件</h2>
+          <p>需求分析 → 自动开发 → 即时预览 → 口语修改 → 导出部署包，全程对话完成，不写一行代码。</p>
+        </div>
         <div class="mock reveal" aria-hidden="true">
           <div class="mock-window">
             <div class="mock-titlebar">
@@ -225,22 +235,47 @@
                 <div class="sb-item"><span class="sb-dot sb-dot-3"></span>周报生成器</div>
                 <div class="sb-new">＋ 新项目</div>
               </aside>
-              <div class="mock-chat">
-                <div class="msg user">我想做一个记录健身打卡的应用，帮我看看？</div>
-                <div class="msg ai">
-                  好的！我们先明确几个问题——<b>谁会用这个应用？</b>
-                  <div class="chips"><span>我自己用</span><span>和朋友一起</span><span>给客户用</span></div>
+              <div class="mock-main">
+                <div class="mock-chat">
+                  <div class="msg user">我想做一个记录健身打卡的应用，帮我看看？</div>
+                  <div class="msg ai">
+                    好的！我们先明确几个问题——<b>谁会用这个应用？</b>
+                    <div class="chips"><span>我自己用</span><span>和朋友一起</span><span>给客户用</span></div>
+                  </div>
+                  <div class="msg user">我自己用，还有我的健身教练</div>
+                  <div class="msg ai status">
+                    <span class="tick">✓</span> 需求分析完成 · 目标用户 / 核心功能已确认
+                    <div class="bar"><i></i></div>
+                    正在为您生成「健身打卡助手」…
+                  </div>
+                  <div class="mock-toast">
+                    <span class="tick">🎉</span> 开发完成，正在打开预览
+                  </div>
+                  <div id="typingSlot" class="msg typing-slot"></div>
                 </div>
-                <div class="msg user">我自己用，还有我的健身教练</div>
-                <div class="msg ai status">
-                  <span class="tick">✓</span> 需求分析完成 · 目标用户 / 核心功能已确认
-                  <div class="bar"><i></i></div>
-                  正在为您生成「健身打卡助手」…
+                <div class="mock-preview">
+                  <div class="preview-bar">
+                    <span class="preview-dot"></span>
+                    <span class="preview-url">localhost:5173</span>
+                  </div>
+                  <div class="preview-content">
+                    <div class="preview-card">
+                      <div class="preview-card-head">💪 今日打卡</div>
+                      <div class="preview-card-row"><span>深蹲</span><span class="check">✓</span></div>
+                      <div class="preview-card-row"><span>跑步 3km</span><span class="check">✓</span></div>
+                      <div class="preview-card-row dim"><span>引体向上</span><span class="check">○</span></div>
+                    </div>
+                    <div class="preview-card preview-card-sm">
+                      <div class="preview-card-head">📊 本周统计</div>
+                      <div class="preview-bars">
+                        <div class="pbar" style="--w:80%"></div>
+                        <div class="pbar" style="--w:60%"></div>
+                        <div class="pbar" style="--w:90%"></div>
+                        <div class="pbar" style="--w:45%"></div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div class="mock-toast">
-                  <span class="tick">🎉</span> 开发完成，正在打开预览
-                </div>
-                <div id="typingSlot" class="msg typing-slot"></div>
               </div>
             </div>
           </div>

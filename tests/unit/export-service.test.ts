@@ -44,13 +44,17 @@ describe('导出部署包', () => {
       expect(names).toContain('app/style.css');
       expect(names).toContain('Dockerfile');
       expect(names).toContain('docker-compose.yml');
-      expect(names).toContain('.env.example');
+      expect(names).toContain('.env');
       expect(names).toContain('README.md');
       expect(names).toContain('deploy-guide.html');
 
       // 内容抽查
       const dockerfile = zip.readAsText('Dockerfile');
       expect(dockerfile).toContain('nginx');
+      const env = zip.readAsText('.env');
+      expect(env).toContain('DB_PROVIDER=sqlite');
+      expect(env).toContain('JWT_SECRET=');
+      expect(env).toContain('LOGIN_METHODS=password');
       const readme = zip.readAsText('README.md');
       expect(readme).toContain('测试应用');
       expect(readme).toContain('docker-compose up -d');
@@ -59,6 +63,59 @@ describe('导出部署包', () => {
       const metaAfter = await storage.getProject(meta.id);
       expect(metaAfter?.status).toBe('exported');
       expect(metaAfter?.exportCount).toBe(1);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('按上线配置导出：内置数据库 + 第三方登录 + 邮箱写入 .env 与 docker-compose', async () => {
+    const { storage, dir, meta } = await makeStorage();
+    try {
+      const exporter = new ExportService(storage);
+      const result = await exporter.exportProject(meta.id, {
+        config: {
+          db: { provider: 'mysql', mode: 'docker' },
+          login: {
+            methods: ['password', 'github'],
+            github: { clientId: 'gh-id', clientSecret: 'gh-secret' },
+          },
+          email: { enabled: true, smtpHost: 'smtp.qq.com', smtpUser: 'me@qq.com', smtpPassword: 'code' },
+          jwt: { expiresInDays: 30 },
+        },
+      });
+
+      const zip = new AdmZip(result.zipPath);
+      const env = zip.readAsText('.env');
+      const compose = zip.readAsText('docker-compose.yml');
+
+      expect(env).toContain('DB_PROVIDER=mysql');
+      expect(env).toContain('DB_HOST=db');
+      expect(env).toContain('GITHUB_CLIENT_ID=gh-id');
+      expect(env).toContain('GITHUB_CLIENT_SECRET=gh-secret');
+      expect(env).toContain('SMTP_ENABLED=true');
+      expect(env).toContain('SMTP_HOST=smtp.qq.com');
+      expect(env).toContain('JWT_EXPIRES_IN=30d');
+      expect(compose).toContain('image: mysql:8.0');
+      expect(compose).toContain('container_name: freecoder-db');
+      expect(compose).toContain('condition: service_healthy');
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('带后端（server.js）导出：Dockerfile 使用 Node 镜像运行登录后端', async () => {
+    const { storage, dir, meta } = await makeStorage();
+    try {
+      const runtime = path.resolve(__dirname, '..', '..', 'resources', 'app-runtime', 'server.js');
+      await fs.copyFile(runtime, path.join(storage.getProjectCodePath(meta.id), 'server.js'));
+
+      const exporter = new ExportService(storage);
+      const result = await exporter.exportProject(meta.id);
+      const zip = new AdmZip(result.zipPath);
+      const dockerfile = zip.readAsText('Dockerfile');
+      expect(dockerfile).toContain('node:20-alpine');
+      expect(dockerfile).toContain('CMD ["node", "server.js"]');
+      expect(zip.readAsText('.env')).toContain('JWT_SECRET=');
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

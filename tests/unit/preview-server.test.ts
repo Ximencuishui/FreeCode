@@ -27,6 +27,38 @@ function httpGet(url: string): Promise<{ status: number; body: string }> {
   });
 }
 
+/** 发送 JSON 请求（支持 POST body 与自定义请求头） */
+function httpJson(
+  port: number,
+  method: string,
+  pathname: string,
+  body?: unknown,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; json: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const data = body ? JSON.stringify(body) : undefined;
+    const req = http.request(
+      { hostname: '127.0.0.1', port, path: pathname, method, headers: { 'Content-Type': 'application/json', ...headers } },
+      (res: http.IncomingMessage) => {
+        let text = '';
+        res.on('data', (chunk: Buffer) => (text += chunk.toString('utf-8')));
+        res.on('end', () => {
+          let json: Record<string, unknown> = {};
+          try {
+            json = JSON.parse(text) as Record<string, unknown>;
+          } catch {
+            /* 非 JSON */
+          }
+          resolve({ status: res.statusCode ?? 0, json });
+        });
+      },
+    );
+    req.on('error', reject);
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
 describe('预览服务器（IT-PRV）', () => {
   it('IT-PRV-001 启动预览：返回 URL 与端口，页面可访问', async () => {
     const dir = await makeProjectDir();
@@ -139,5 +171,103 @@ describe('预览服务器（IT-PRV）', () => {
     const port = await findAvailablePort(3100, 3105);
     expect(port).toBeGreaterThanOrEqual(3100);
     expect(port).toBeLessThanOrEqual(3105);
+  });
+
+  it('/api 转发：带 server.js 时注册/登录/me 全流程可用', async () => {
+    const dir = await makeProjectDir();
+    // 注入标准后端运行时（与主工作流注入一致）
+    const runtime = path.resolve(__dirname, '..', '..', 'resources', 'app-runtime', 'server.js');
+    await fs.copyFile(runtime, path.join(dir, 'server.js'));
+
+    const server = new PreviewServer();
+    try {
+      const { port } = await server.start(dir);
+
+      const reg = await httpJson(port, 'POST', '/api/register', {
+        username: '测试用户',
+        password: 'abc123',
+      });
+      expect(reg.status).toBe(200);
+      expect(reg.json.token).toBeTruthy();
+
+      const login = await httpJson(port, 'POST', '/api/login', {
+        username: '测试用户',
+        password: 'abc123',
+      });
+      expect(login.status).toBe(200);
+      const token = login.json.token as string;
+
+      const me = await httpJson(port, 'GET', '/api/me', undefined, {
+        Authorization: `Bearer ${token}`,
+      });
+      expect(me.status).toBe(200);
+      expect(me.json.user).toMatchObject({ username: '测试用户' });
+
+      // 静态页面不受影响
+      const page = await httpGet(`http://localhost:${port}`);
+      expect(page.status).toBe(200);
+      expect(page.body).toContain('我的记账本');
+    } finally {
+      await server.stop();
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('/api 转发：纯静态项目（无 server.js）返回 503', async () => {
+    const dir = await makeProjectDir();
+    const server = new PreviewServer();
+    try {
+      const { port } = await server.start(dir);
+      const res = await httpJson(port, 'GET', '/api/health');
+      expect(res.status).toBe(503);
+    } finally {
+      await server.stop();
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('/api/data 转发：业务数据 CRUD 走后端，按用户隔离', async () => {
+    const dir = await makeProjectDir();
+    const runtime = path.resolve(__dirname, '..', '..', 'resources', 'app-runtime', 'server.js');
+    await fs.copyFile(runtime, path.join(dir, 'server.js'));
+
+    const server = new PreviewServer();
+    try {
+      const { port } = await server.start(dir);
+
+      // 注册
+      const reg = await httpJson(port, 'POST', '/api/register', {
+        username: 'tester',
+        password: 'abc123',
+      });
+      expect(reg.status).toBe(200);
+      const token = reg.json.token as string;
+
+      // 新建一条数据
+      const created = await httpJson(
+        port,
+        'POST',
+        '/api/data/todos',
+        { title: '测试任务' },
+        { Authorization: `Bearer ${token}` },
+      );
+      expect(created.status).toBe(200);
+      expect(created.json.item.title).toBe('测试任务');
+      expect(created.json.item.id).toBeTruthy();
+
+      // 列表
+      const list = await httpJson(port, 'GET', '/api/data/todos', undefined, {
+        Authorization: `Bearer ${token}`,
+      });
+      expect(list.status).toBe(200);
+      expect(list.json.items).toHaveLength(1);
+
+      // 未登录访问数据 → 401
+      const anon = await httpJson(port, 'GET', '/api/data/todos');
+      expect(anon.status).toBe(401);
+    } finally {
+      await server.stop();
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });

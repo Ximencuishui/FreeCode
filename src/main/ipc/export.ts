@@ -34,7 +34,10 @@ export function registerExportIpc(storage: StorageManager): void {
     // 生成任务 ID，后台执行导出
     const exportId = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '');
     void exporter
-      .exportProject(params.projectId, { includeDocker: params.includeDocker ?? true })
+      .exportProject(params.projectId, {
+        includeDocker: params.includeDocker ?? true,
+        config: params.config,
+      })
       .then((result) => {
         broadcastComplete({
           exportId: result.exportId,

@@ -146,10 +146,15 @@ a { color: inherit; text-decoration: none; }
   position: relative;
   max-width: var(--maxw);
   margin: 0 auto;
-  display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
-  gap: 56px;
+  display: flex;
+  flex-direction: column;
   align-items: center;
+  gap: 48px;
+}
+
+.hero-copy {
+  text-align: center;
+  max-width: 720px;
 }
 
 .pill {
@@ -182,15 +187,15 @@ a { color: inherit; text-decoration: none; }
   margin-bottom: 22px;
 }
 
-.lead { font-size: 17px; color: var(--text-dim); max-width: 540px; margin-bottom: 30px; }
+.lead { font-size: 17px; color: var(--text-dim); max-width: 620px; margin-bottom: 30px; margin-inline: auto; }
 .lead strong { color: var(--text); font-weight: 600; }
 
-.hero-cta { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+.hero-cta { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; justify-content: center; }
 
 .hero-meta { font-size: 13.5px; color: var(--text-faint); }
 
 /* ---------- 产品窗口模拟 ---------- */
-.mock { position: relative; }
+.mock { position: relative; width: 100%; max-width: 960px; margin: 0 auto; }
 
 .mock-window {
   border: 1px solid var(--border-strong);
@@ -199,6 +204,9 @@ a { color: inherit; text-decoration: none; }
   box-shadow: 0 40px 90px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255,255,255,0.03) inset;
   overflow: hidden;
   backdrop-filter: blur(6px);
+  display: flex;
+  flex-direction: column;
+  aspect-ratio: 16 / 9;
 }
 
 .mock-titlebar {
@@ -215,7 +223,47 @@ a { color: inherit; text-decoration: none; }
 .traffic i:nth-child(3) { background: #28c840; }
 .mock-titlebar .title { font-size: 12.5px; color: var(--text-dim); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.mock-body { display: grid; grid-template-columns: 128px 1fr; min-height: 360px; }
+.mock-body { display: grid; grid-template-columns: 140px 1fr; flex: 1; min-height: 0; }
+
+.mock-main { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+
+.mock-preview {
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+.preview-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px; color: var(--text-faint);
+}
+.preview-dot { width: 7px; height: 7px; border-radius: 50%; background: #34d399; box-shadow: 0 0 6px #34d399; }
+.preview-url { font-family: "SF Mono", "Fira Code", monospace; letter-spacing: 0.3px; }
+.preview-content { padding: 14px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.preview-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.preview-card-head { font-size: 12px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+.preview-card-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 11.5px; color: var(--text-dim); padding: 4px 0;
+}
+.preview-card-row.dim { opacity: 0.5; }
+.preview-card-row .check { color: #34d399; font-weight: 700; }
+.preview-card-sm { flex: 1; }
+.preview-bars { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.pbar {
+  height: 6px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--indigo), var(--cyan));
+  width: var(--w);
+  opacity: 0.7;
+}
 
 .mock-sidebar {
   border-right: 1px solid var(--border);
@@ -294,6 +342,13 @@ a { color: inherit; text-decoration: none; }
 .float-1 { bottom: -22px; left: -26px; }
 .float-2 { top: 44%; right: -30px; color: #7de7f8; animation-delay: 2.4s; }
 @keyframes floaty { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+
+/* ---------- 实时演示区块（Hero 下方） ---------- */
+.demo {
+  position: relative;
+  padding: 96px 24px 112px;
+  background: radial-gradient(760px 420px at 50% 26%, rgba(99, 102, 241, 0.1), transparent 70%);
+}
 
 /* ---------- 数据条 ---------- */
 .stats { border-block: 1px solid var(--border); background: var(--bg-soft); }
@@ -591,9 +646,10 @@ a { color: inherit; text-decoration: none; }
   .nav-links a { padding: 13px 24px; font-size: 16px; }
   .nav-toggle { display: flex; }
 
-  .hero-inner { grid-template-columns: 1fr; gap: 64px; }
   .hero { padding-top: calc(var(--nav-h) + 56px); }
-  .mock { max-width: 560px; margin: 0 auto; width: 100%; }
+  .hero-copy { text-align: center; }
+  .mock { max-width: 560px; }
+  .mock-window { aspect-ratio: 4 / 3; }
   .float-1 { left: -10px; }
   .float-2 { right: -8px; }
   .cards { grid-template-columns: 1fr; max-width: 560px; }
@@ -605,9 +661,12 @@ a { color: inherit; text-decoration: none; }
 
 @media (max-width: 760px) {
   .section { padding: 72px 20px; }
+  .demo { padding: 72px 20px 96px; }
   .mock-body { grid-template-columns: 1fr; }
   .mock-sidebar { display: none; }
-  .mock-window { min-height: 0; }
+  .mock-main { grid-template-columns: 1fr; }
+  .mock-preview { display: none; }
+  .mock-window { aspect-ratio: auto; height: 500px; }
   .engine-card { flex-direction: column; }
 }
 

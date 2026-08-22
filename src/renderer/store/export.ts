@@ -2,6 +2,7 @@
  * 导出状态。
  */
 import { create } from 'zustand';
+import type { DeployConfig } from '@shared/types/export';
 
 export interface ExportState {
   visible: boolean;
@@ -12,15 +13,15 @@ export interface ExportState {
 
   open: () => void;
   close: () => void;
-  startExport: (projectId: string) => Promise<void>;
+  startExport: (projectId: string, config?: DeployConfig) => Promise<void>;
   reset: () => void;
 }
 
 export const useExportStore = create<ExportState>((set) => {
-  const startExport = async (projectId: string) => {
+  const startExport = async (projectId: string, config?: DeployConfig) => {
     set({ exporting: true, done: false, error: null });
     try {
-      await window.electron.export.start({ projectId, includeDocker: true });
+      await window.electron.export.start({ projectId, includeDocker: true, config });
       // 完成经 export:complete 事件到达（App 中订阅）
     } catch (err) {
       const msg =

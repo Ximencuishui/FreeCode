@@ -34,6 +34,7 @@ const electronApi: Window['electron'] = {
     delete: (params) => ipcRenderer.invoke(IpcChannels.projectDelete, params),
     get: (params) => ipcRenderer.invoke(IpcChannels.projectGet, params),
     confirm: (params) => ipcRenderer.invoke(IpcChannels.projectConfirm, params),
+    confirmPlan: (params) => ipcRenderer.invoke(IpcChannels.projectConfirmPlan, params),
     selectLocation: () => ipcRenderer.invoke(IpcChannels.projectSelectLocation),
   },
   export: {

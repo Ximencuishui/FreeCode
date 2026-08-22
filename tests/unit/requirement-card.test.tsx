@@ -23,7 +23,7 @@ describe('需求卡片（RequirementCard）', () => {
   it('未确认时显示确认按钮，点击触发回调', () => {
     const onConfirm = jest.fn();
     render(<RequirementCard requirements={req} onConfirm={onConfirm} />);
-    const btn = screen.getByText('确认需求，开始开发');
+    const btn = screen.getByText('确认需求，规划版本');
     fireEvent.click(btn);
     expect(onConfirm).toHaveBeenCalled();
   });
@@ -36,12 +36,19 @@ describe('需求卡片（RequirementCard）', () => {
         onConfirm={() => undefined}
       />,
     );
-    expect(screen.queryByText('确认需求，开始开发')).toBeNull();
+    expect(screen.queryByText('确认需求，规划版本')).toBeNull();
     expect(screen.getByText(/已确认/)).toBeTruthy();
   });
 
-  it('开发中状态显示进度提示', () => {
+  it('planned 状态显示版本规划提示且不显示确认按钮', () => {
+    render(<RequirementCard requirements={req} status="planned" onConfirm={() => undefined} />);
+    expect(screen.getByText(/正在规划版本分段/)).toBeTruthy();
+    expect(screen.queryByText('确认需求，规划版本')).toBeNull();
+  });
+
+  it('developing 状态视为已确认，不显示确认按钮', () => {
     render(<RequirementCard requirements={req} status="developing" onConfirm={() => undefined} />);
-    expect(screen.getByText(/开发团队正在工作/)).toBeTruthy();
+    expect(screen.queryByText('确认需求，规划版本')).toBeNull();
+    expect(screen.getByText(/已确认/)).toBeTruthy();
   });
 });

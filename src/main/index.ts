@@ -6,6 +6,7 @@ import { FileStorageManager, getFreeCoderDir } from './storage';
 import { createSafeStorageEncryptor } from './security/electronEncryptor';
 import { DSHService } from './dsh/service';
 import { Developer } from './dev/developer';
+import { VersionPlanner } from './dev/planner';
 
 app.whenReady().then(async () => {
   // 初始化本地存储（~/.freecoder/，API Key 使用 safeStorage 加密）
@@ -28,8 +29,9 @@ app.whenReady().then(async () => {
     },
   });
   const developer = new Developer({ storage, dsh });
+  const planner = new VersionPlanner({ storage, dsh });
 
-  registerIpcHandlers(storage, dsh, developer);
+  registerIpcHandlers(storage, dsh, developer, planner);
   installAppMenu();
   registerClipboardShortcuts(); // 在创建窗口前注册，覆盖主窗口与 webview
   createMainWindow();

@@ -1,5 +1,11 @@
-import { buildAssistantTask, buildModifyTask, buildDevelopmentTask } from '../../src/main/dsh/prompt';
+import {
+  buildAssistantTask,
+  buildModifyTask,
+  buildDevelopmentTask,
+  buildVersionPlanTask,
+} from '../../src/main/dsh/prompt';
 import type { Requirements } from '../../src/main/storage/types';
+import type { VersionPlan } from '../../src/shared/types/project';
 
 const requirements: Requirements = {
   projectId: 'p1',
@@ -72,7 +78,38 @@ describe('对话任务构建（prompt）', () => {
     const task = buildDevelopmentTask(requirements);
     expect(task).toContain('全栈开发工程师');
     expect(task).toContain('index.html');
-    expect(task).toContain('localStorage');
     expect(task).toContain('个人收支记录工具');
+  });
+
+  it('buildDevelopmentTask：说明内置登录与数据集成（FreeCoderAuth）', () => {
+    const task = buildDevelopmentTask(requirements);
+    expect(task).toContain('auth.js');
+    expect(task).toContain('FreeCoderAuth.init');
+    expect(task).toContain('FreeCoderAuth.requireLogin');
+    expect(task).toContain('FreeCoderAuth.data');
+    expect(task).toContain('不要使用 localStorage');
+    expect(task).toContain('不要修改或删除 auth.js、server.js');
+  });
+
+  it('buildDevelopmentTask：有版本计划时只开发 V1 子集', () => {
+    const plan: VersionPlan = {
+      versions: [
+        { label: 'V1', description: '先能记账', features: ['记录收支'] },
+        { label: 'V2', description: '看得更明白', features: ['分类统计'] },
+      ],
+    };
+    const task = buildDevelopmentTask(requirements, plan);
+    expect(task).toContain('记录收支');
+    expect(task).toContain('只开发 V1');
+    // V2 功能不应进入本次开发范围
+    expect(task).not.toContain('分类统计');
+  });
+
+  it('buildVersionPlanTask：包含需求与 MVP 切分要求', () => {
+    const task = buildVersionPlanTask(requirements);
+    expect(task).toContain('产品经理');
+    expect(task).toContain('最小可用版本');
+    expect(task).toContain('记录收支');
+    expect(task).toContain('versions');
   });
 });

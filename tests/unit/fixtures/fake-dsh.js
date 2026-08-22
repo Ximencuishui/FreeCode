@@ -3,6 +3,7 @@
  * 模拟 dsh CLI 的子进程夹具（DSH 单元测试 + E2E 离线测试共用）。
  * 行为（按任务特征匹配）：
  *   - 需求分析（含"产品需求分析师"）：输入含"个人使用+记录收支"时输出需求 JSON，否则提问
+ *   - 版本分段（含"产品经理"）：输出版本计划 JSON（V1=记录收支，V2=分类统计）
  *   - 开发（含"全栈开发工程师"）：在 cwd 生成 index.html/style.css/app.js
  *   - 修改（含"开发工程师"）：改写 style.css
  *   - --crash：exit 1；--hang：不退出
@@ -55,6 +56,19 @@ if (task.includes('产品需求分析师')) {
   } else {
     console.log('好的，谁会用这个工具？\nA. 个人使用\nB. 家庭共用');
   }
+  process.exit(0);
+}
+
+// 版本分段模式（写代码前的 MVP 切分）
+if (task.includes('产品经理')) {
+  console.log(
+    JSON.stringify({
+      versions: [
+        { label: 'V1', description: '先能记账', features: ['记录收支'] },
+        { label: 'V2', description: '看得更明白', features: ['分类统计'] },
+      ],
+    }),
+  );
   process.exit(0);
 }
 

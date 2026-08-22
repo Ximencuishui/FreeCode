@@ -1,4 +1,5 @@
 import type { Requirements } from '../storage/types';
+import type { VersionPlan } from '../../shared/types/project';
 
 /**
  * 需求结构化输出解析（Hermes 结构化输出在 headless 模式下通过 prompt 约束实现）。
@@ -105,4 +106,54 @@ export function toRequirements(projectId: string, parsed: ParsedRequirements): R
     history: [{ version: 1, timestamp: now, changes: 'AI 助理生成需求' }],
     updatedAt: now,
   };
+}
+
+/**
+ * 解析版本分段计划 JSON（AI 基于已确认需求生成的 MVP 切分建议）。
+ * 要求：versions 为非空数组，每项含 label + features（非空）。
+ * 否则返回 null（计划未生成，使用兜底计划）。
+ */
+export function tryParseVersionPlan(reply: string): VersionPlan | null {
+  const json = tryExtractJson(reply);
+  if (!json || typeof json !== 'object') return null;
+
+  const obj = json as Record<string, unknown>;
+  const rawVersions = obj.versions;
+  if (!Array.isArray(rawVersions) || rawVersions.length === 0) return null;
+
+  const versions = rawVersions
+    .filter((v): v is Record<string, unknown> => typeof v === 'object' && v !== null)
+    .map((v) => ({
+      label: asString(v.label) ?? '',
+      description: asString(v.description) ?? '',
+      features: asStringArray(v.features) ?? [],
+    }))
+    .filter((v) => v.label && v.features.length > 0);
+
+  if (versions.length === 0) return null;
+  return { versions };
+}
+
+/**
+ * 兜底版本计划：AI 未返回有效计划时使用。
+ * V1 = 第一个核心功能（最小可用），其余功能归入 V2。
+ */
+export function fallbackVersionPlan(coreFeatures: string[]): VersionPlan {
+  const first = coreFeatures[0] ?? '核心功能';
+  const rest = coreFeatures.slice(1);
+  const versions = [
+    {
+      label: 'V1',
+      description: '最小可用版本（MVP）：先跑通最核心的功能',
+      features: [first],
+    },
+  ];
+  if (rest.length > 0) {
+    versions.push({
+      label: 'V2',
+      description: '完善版本：在 V1 基础上补齐其余功能',
+      features: rest,
+    });
+  }
+  return { versions };
 }

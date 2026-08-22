@@ -127,4 +127,34 @@ describe('开发执行器（Developer）', () => {
     expect(outcome.message).toContain('小状况');
     expect((await storage.getProject(meta.id))?.status).toBe('developing');
   });
+
+  it('有版本计划：开发任务只包含 V1 功能子集', async () => {
+    const storage = new FakeStorage();
+    const meta = await storage.createProject('记账本');
+    await storage.saveRequirements(meta.id, {
+      ...makeRequirements(meta.id),
+      coreFeatures: ['记录收支', '分类统计'],
+    });
+    // 版本计划：V1 只做「记录收支」
+    await storage.updateProjectMeta(meta.id, {
+      versionPlan: {
+        versions: [
+          { label: 'V1', description: '先能记账', features: ['记录收支'] },
+          { label: 'V2', description: '看得更明白', features: ['分类统计'] },
+        ],
+      },
+    });
+
+    const dsh = {
+      runTask: jest.fn(async () => ({ reply: '已完成开发', exitCode: 0 })),
+    };
+    const developer = new Developer({ storage, dsh });
+
+    await new Promise<void>((resolve) => developer.startDevelopment(meta.id, () => resolve()));
+
+    const task = dsh.runTask.mock.calls[0][1] as string;
+    expect(task).toContain('记录收支');
+    expect(task).toContain('只开发 V1');
+    expect(task).not.toContain('分类统计');
+  });
 });

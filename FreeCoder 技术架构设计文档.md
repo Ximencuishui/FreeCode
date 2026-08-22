@@ -436,6 +436,47 @@ class PreviewServer {
 ```
 
 
+#### 4.2.6 版本分段规划器与开发执行器（`main/dev/`）
+
+**职责**：
+- `VersionPlanner`（`main/dev/planner.ts`）：需求确认后、写代码前，由 AI 把已确认的核心功能切分为 V1（最小可用版本 MVP）与后续版本；AI 失败或返回无效 JSON 时使用**确定性兜底计划**（V1=第一个核心功能），保证流程不中断
+- `Developer`（`main/dev/developer.ts`）：版本计划确认后，调用 DSH 在项目代码目录生成应用；**有版本计划时只开发 V1 功能子集**，避免非技术用户追求"大而全"而忽略 MVP
+
+**状态流转**：`draft → planned（计划生成，待用户确认）→ developing（确认计划后）→ ready / exported`
+
+**核心实现（版本分段规划器）**：
+
+```typescript
+class VersionPlanner {
+  async generatePlan(projectId, onDone): Promise<void> {
+    // 整体兜底：任何存储/解析异常都确保 onDone 必被回调一次，
+    // 避免渲染端轮询无终止（防御性编程，见第七章）
+    try {
+      await storage.updateProjectMeta(projectId, { status: 'planned' });
+      const requirements = await storage.getRequirements(projectId);
+      if (!requirements || requirements.coreFeatures.length === 0) {
+        onDone({ success: false, message: '需求尚未就绪，无法生成版本计划' });
+        return;
+      }
+      let plan = null;
+      try {
+        const result = await dsh.runTask(path, buildVersionPlanTask(requirements));
+        if (result.exitCode === 0) plan = tryParseVersionPlan(result.reply);
+      } catch { /* 使用兜底计划 */ }
+      if (!plan) plan = fallbackVersionPlan(requirements.coreFeatures);
+      await storage.updateProjectMeta(projectId, { versionPlan: plan });
+      onDone({ success: true, message: '版本分段计划已生成…' });
+    } catch {
+      onDone({ success: false, message: '版本分段计划生成失败，请稍后重试' });
+    }
+  }
+}
+```
+
+**V1 子集透传链路**：确认计划时用户可调整勾选 → `project:confirm-plan` 把调整后的计划写入 `ProjectMeta.versionPlan` → `Developer` 读取同一 `versionPlan`，仅把 `versions[0].features` 作为本次开发范围（其余功能不实现，后续对话中说"开发 V2"再逐步完善）。
+
+
+
 ## 五、核心数据流
 
 ### 5.1 完整用户旅程数据流
@@ -557,6 +598,56 @@ class PreviewServer {
 ```
 
 
+### 5.5 版本分段与开发数据流
+
+```
+用户点击需求卡片「确认需求，规划版本」
+    ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 渲染进程 → 主进程 (IPC)                                        │
+│ { channel: 'project:confirm', projectId }                      │
+└─────────────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 主进程：状态 draft → planned                                   │
+│ 后台异步调用 VersionPlanner.generatePlan（IPC 立即返回）        │
+└─────────────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ VersionPlanner → DSH 子进程 (版本分段任务)                     │
+│ AI 返回版本计划 JSON；失败/无效 → 兜底计划（V1=首个功能）       │
+│ 计划写入 ProjectMeta.versionPlan                               │
+└─────────────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 渲染进程：planned 状态下每 2s 轮询 project:get                  │
+│ 拿到 versionPlan 后停止轮询，展示版本分段计划卡片              │
+└─────────────────────────────────────────────────────────────────┘
+    ↓
+用户勾选调整 V1 功能范围，点击「确认计划，开始开发 V1」
+    ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 渲染进程 → 主进程 (IPC)                                        │
+│ { channel: 'project:confirm-plan', projectId, plan }           │
+└─────────────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 主进程：状态 planned → developing                              │
+│ 保存调整后的计划 → 后台调用 Developer 只开发 V1 子集            │
+└─────────────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Developer → DSH 子进程 (开发任务，coreFeatures 仅含 V1 功能)    │
+│ 完成 → 主进程推送 chat:signal，状态 developing → ready          │
+└─────────────────────────────────────────────────────────────────┘
+    ↓
+用户进入预览视图
+```
+
+**防御要点**（详见第七章）：IPC 层对 `project:confirm` 做幂等守卫、对 `project:confirm-plan` 做 V1 结构校验；`generatePlan` 任何异常都必须回调 `onDone`，否则渲染端轮询无终止。
+
+
+
 ## 六、进程通信设计
 
 ### 6.1 IPC 通信架构
@@ -602,7 +693,11 @@ class PreviewServer {
 | `preview:element` | 渲染 → 主 | 预览元素选中信息 |
 | `project:list` | 渲染 → 主 | 获取项目列表 |
 | `project:create` | 渲染 → 主 | 创建新项目 |
+| `project:get` | 渲染 → 主 | 读取项目详情（含需求与版本计划） |
+| `project:confirm` | 渲染 → 主 | 确认需求 → 进入版本分段阶段（planned），后台生成版本计划 |
+| `project:confirm-plan` | 渲染 → 主 | 确认版本分段计划 → 只开发 V1 并启动开发 |
 | `project:delete` | 渲染 → 主 | 删除项目 |
+| `project:select-location` | 渲染 → 主 | 弹出系统文件夹选择器（自定义保存位置） |
 | `export:start` | 渲染 → 主 | 开始导出部署包 |
 | `export:complete` | 主 → 渲染 | 导出完成通知 |
 | `settings:get` | 渲染 → 主 | 获取设置 |
@@ -665,9 +760,76 @@ contextBridge.exposeInMainWorld('electron', {
 ```
 
 
-## 七、安全设计
+## 七、防御性编程规范
 
-### 7.1 安全原则
+面向非技术用户的流程中，任何一步卡死都会造成困惑。本规范约束主进程与渲染进程在**异常路径**上的行为，确保流程要么前进、要么给出明确反馈，绝不悬挂。
+
+### 7.1 异步任务：回调必达
+
+**规范**：后台异步任务（如版本计划生成、代码开发）必须保证结果回调 `onDone` **恰好被调用一次**，包括异常路径。
+
+**已落地实现**（`main/dev/planner.ts`）：`generatePlan` 主体包在 `try/catch` 中，存储写入失败时也回调 `onDone({ success: false, ... })`，渲染端轮询因此有明确终止结果。
+
+```typescript
+async generatePlan(projectId, onDone): Promise<void> {
+  try {
+    // ... 计划生成与写入
+    onDone({ success: true, message: '版本分段计划已生成…' });
+  } catch {
+    onDone({ success: false, message: '版本分段计划生成失败，请稍后重试' });
+  }
+}
+```
+
+**配套约束**：
+- IPC 层对后台任务用 `void task(...).catch(() => undefined)` 兜底，杜绝 unhandled rejection（`main/ipc/project.ts`）
+- 渲染端轮询必须有终止条件（拿到结果、阶段变更、组件卸载时清理定时器）
+
+### 7.2 IPC 边界：幂等守卫
+
+**规范**：会触发后台重任务（AI 调用、文件写入）的 IPC 通道必须**幂等**——同一项目在已推进状态下重复调用不得重复执行、不得回退状态。
+
+**已落地实现**（`main/ipc/project.ts` 的 `project:confirm`）：
+
+```typescript
+// 幂等保护：已进入版本分段（或后续阶段）时不重复生成计划
+if (project.status !== 'draft') {
+  return { success: true };
+}
+```
+
+**依据**：渲染端按钮虽会在确认后隐藏，但双击竞态、异常重试等路径仍可重复调用；主进程是 IPC 信任边界，不能依赖 UI 防重。
+
+### 7.3 IPC 边界：输入结构校验
+
+**规范**：主进程接收的复杂对象参数（如版本计划）必须校验**最小必要结构**，非法输入直接拒绝，避免静默降级造成错误业务行为。
+
+**已落地实现**（`main/ipc/project.ts` 的 `project:confirm-plan`）：校验 V1 的 `label` 非空且 `features` 为非空数组；否则抛 `INVALID_PARAMS` 并保持原状态。
+
+**背景**：若无此校验，`features: []` 的非法计划会让 `Developer` 静默回退为开发全部功能，与"只开发 V1"的产品预期不符。
+
+### 7.4 确定性兜底
+
+**规范**：依赖 AI 输出的功能（解析失败、进程异常）必须提供**确定性兜底方案**，保证流程不中断、不悬挂。
+
+**已落地实现**（`main/dsh/structured.ts` 的 `fallbackVersionPlan`）：AI 未返回有效版本计划时，兜底为「V1=第一个核心功能，其余归 V2」，行为可预测、可测试。
+
+### 7.5 规范速查
+
+| 场景 | 必须做到 | 禁止 |
+|------|---------|------|
+| 后台异步任务 | 回调必达（成功/失败各一次） | 异常后无回调、悬挂 |
+| 重任务 IPC | 状态幂等守卫 | 重复执行、状态回退 |
+| 复杂 IPC 参数 | 最小结构校验 | 静默接受非法输入 |
+| AI 输出解析 | 确定性兜底 | 解析失败即中断流程 |
+| 渲染端轮询 | 有终止条件 + 卸载清理 | 无限轮询无反馈 |
+
+**检查清单**：新增后台任务时自查 ① 异常路径是否回调；② IPC 是否幂等；③ 复杂入参是否校验；④ AI 输出是否有兜底。
+
+
+## 八、安全设计
+
+### 8.1 安全原则
 
 | 原则 | 说明 |
 |------|------|
@@ -677,7 +839,7 @@ contextBridge.exposeInMainWorld('electron', {
 | **沙箱隔离** | DSH 运行在独立子进程，代码生成在沙箱环境 |
 | **无遥测** | 不收集任何用户数据，不发送分析信息 |
 
-### 7.2 安全措施
+### 8.2 安全措施
 
 | 风险 | 措施 |
 |------|------|
@@ -687,7 +849,7 @@ contextBridge.exposeInMainWorld('electron', {
 | 未经授权的进程访问 | 使用 Electron 的 contextBridge 隔离，只暴露白名单 API |
 | 跨站脚本攻击 | 预览 WebView 开启沙箱模式，禁用 Node.js 集成 |
 
-### 7.3 安全审计清单
+### 8.3 安全审计清单
 
 - [ ] API Key 加密存储验证
 - [ ] IPC 通道权限检查
@@ -697,9 +859,9 @@ contextBridge.exposeInMainWorld('electron', {
 - [ ] 无用户数据上传验证
 
 
-## 八、构建与发布
+## 九、构建与发布
 
-### 8.1 构建配置（electron-builder.yml）
+### 9.1 构建配置（electron-builder.yml）
 
 ```yaml
 appId: com.freecoder.app
@@ -743,7 +905,7 @@ nsis:
   perMachine: true
 ```
 
-### 8.2 打包大小估算
+### 9.2 打包大小估算
 
 | 平台 | 预估大小 | 说明 |
 |------|---------|------|
@@ -751,7 +913,7 @@ nsis:
 | macOS (DMG) | ~130 MB | 含 Electron + Node + DSH |
 | Linux (AppImage) | ~110 MB | 含 Electron + Node + DSH |
 
-### 8.3 开发模式
+### 9.3 开发模式
 
 ```bash
 # 安装依赖
@@ -768,9 +930,9 @@ pnpm package
 ```
 
 
-## 九、性能指标
+## 十、性能指标
 
-### 9.1 目标性能
+### 10.1 目标性能
 
 | 指标 | 目标值 |
 |------|--------|
@@ -783,7 +945,7 @@ pnpm package
 | 磁盘占用（安装） | < 200 MB |
 | 导出包生成 | < 10 秒 |
 
-### 9.2 性能优化策略
+### 10.2 性能优化策略
 
 | 策略 | 说明 |
 |------|------|
@@ -793,10 +955,11 @@ pnpm package
 | 缓存 | 页面元素分析结果缓存，减少重复计算 |
 
 
-## 十、版本历史
+## 十一、版本历史
 
 | 版本 | 日期 | 变更说明 |
 |------|------|---------|
+| v1.1 | 2026-08-21 | 新增版本分段模块（4.2.6）与版本分段数据流（5.5）；IPC 通道补充 `project:confirm` / `project:confirm-plan`；新增第七章「防御性编程规范」（回调必达、IPC 幂等、输入校验、确定性兜底） |
 | v1.0 | 2026-08-19 | 初始版本，覆盖 0.1.x 完整技术架构 |
 
 

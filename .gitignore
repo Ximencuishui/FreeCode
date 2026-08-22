@@ -30,3 +30,6 @@ Thumbs.db
 # pnpm store (local cache)
 .pnpm-store/
 
+# npm cache (local cache)
+.npm-cache/
+

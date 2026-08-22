@@ -25,6 +25,8 @@ import type {
   ProjectGetResult,
   ProjectConfirmParams,
   ProjectConfirmResult,
+  ProjectConfirmPlanParams,
+  ProjectConfirmPlanResult,
   ProjectSelectLocationResult,
 } from './project';
 import type { ExportStartParams, ExportStartResult, ExportCompleteEvent } from './export';
@@ -67,6 +69,8 @@ declare global {
         delete: (params: ProjectDeleteParams) => Promise<ProjectDeleteResult>;
         get: (params: ProjectGetParams) => Promise<ProjectGetResult>;
         confirm: (params: ProjectConfirmParams) => Promise<ProjectConfirmResult>;
+        /** 确认版本分段计划（可携带调整后的计划），确认后启动开发 */
+        confirmPlan: (params: ProjectConfirmPlanParams) => Promise<ProjectConfirmPlanResult>;
         /** 弹出系统文件夹选择器，返回用户选中的保存位置 */
         selectLocation: () => Promise<ProjectSelectLocationResult>;
       };

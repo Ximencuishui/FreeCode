@@ -95,6 +95,19 @@ export default function ProjectWelcome() {
             创建时可以选择保存位置，或使用默认位置（本程序下的 Project 目录）
           </p>
         </div>
+
+        {/* 主流程预告：让用户知道接下来会发生什么 */}
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-y-1 text-xs text-slate-400">
+          {['💬 聊需求', '🗺️ 版本分段', '🤖 自动写代码', '🔍 预览调整', '📦 导出使用'].map((s, i) => (
+            <span key={s} className="flex items-center">
+              {i > 0 && <span className="mx-1.5 text-slate-300">→</span>}
+              <span>{s}</span>
+            </span>
+          ))}
+        </div>
+        <p className="mt-2 text-center text-xs text-slate-300">
+          先做最小可用版本（MVP），用起来再逐步完善
+        </p>
       </div>
 
       {dialogOpen && (

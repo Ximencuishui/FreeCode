@@ -1,8 +1,23 @@
 /** 项目管理域类型（API 文档 4.3） */
 
-export type ProjectStatus = 'draft' | 'developing' | 'ready' | 'exported';
+export type ProjectStatus = 'draft' | 'planned' | 'developing' | 'ready' | 'exported';
 
 export type ProjectTemplate = 'blank' | 'blog' | 'ecommerce' | 'tool';
+
+/** 版本分段：单个版本（V1 为最小可用版本 MVP） */
+export interface VersionPlanVersion {
+  /** 版本标签，如 "V1" / "V2" */
+  label: string;
+  /** 版本说明（通俗一句话） */
+  description: string;
+  /** 该版本包含的功能（coreFeatures 的子集） */
+  features: string[];
+}
+
+/** 版本分段计划：把需求功能按版本切分，先做 MVP */
+export interface VersionPlan {
+  versions: VersionPlanVersion[];
+}
 
 export interface ProjectSummary {
   id: string;
@@ -63,6 +78,8 @@ export interface ProjectDetail {
   name: string;
   description: string;
   requirements: ProjectRequirements;
+  /** 版本分段计划（需求确认后、写代码前生成） */
+  versionPlan?: VersionPlan | null;
   status: ProjectStatus;
   createdAt: string;
   updatedAt: string;
@@ -94,6 +111,18 @@ export interface ProjectConfirmParams {
 }
 
 export interface ProjectConfirmResult {
+  success: boolean;
+  error?: string;
+}
+
+/** 确认版本分段计划（可携带用户调整后的计划），确认后启动开发 */
+export interface ProjectConfirmPlanParams {
+  projectId: string;
+  /** 用户调整后的版本计划（省略则使用已生成的计划） */
+  plan?: VersionPlan;
+}
+
+export interface ProjectConfirmPlanResult {
   success: boolean;
   error?: string;
 }

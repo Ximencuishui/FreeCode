@@ -67,12 +67,12 @@ contextBridge.exposeInMainWorld('electron', {
 |------|---------|------|
 | 对话接口 | 4 个 | 用户消息发送、AI 响应、信号推送 |
 | 预览接口 | 5 个 | 预览启动/停止、元素选中、状态更新 |
-| 项目管理接口 | 4 个 | 项目创建、列表、删除、读取 |
+| 项目管理接口 | 6 个 | 项目创建、列表、删除、读取、确认需求、确认版本分段计划 |
 | 导出接口 | 2 个 | 导出部署包 |
 | 设置接口 | 2 个 | 获取/更新设置 |
 | API Key 接口 | 2 个 | 保存/验证 API Key |
 | 应用接口 | 2 个 | 应用信息、退出 |
-| **合计** | **21 个** | |
+| **合计** | **23 个** | |
 
 
 ## 四、接口详细设计
@@ -403,7 +403,7 @@ interface ProjectListResult {
     name: string;
     createdAt: string;
     updatedAt: string;
-    status: 'draft' | 'developing' | 'ready' | 'exported';
+    status: 'draft' | 'planned' | 'developing' | 'ready' | 'exported';
   }[];
 }
 ```
@@ -523,12 +523,84 @@ interface ProjectGetResult {
       visualStyle: string;
       // ... 其他需求字段
     };
-    status: 'draft' | 'developing' | 'ready' | 'exported';
+    versionPlan?: {           // 版本分段计划（需求确认后生成，写代码前供用户确认）
+      versions: {
+        label: string;        // 版本标签，如 "V1" / "V2"
+        description: string;  // 版本说明（通俗一句话）
+        features: string[];   // 该版本包含的功能（coreFeatures 的子集）
+      }[];
+    } | null;
+    status: 'draft' | 'planned' | 'developing' | 'ready' | 'exported';
     createdAt: string;
     updatedAt: string;
     chatHistory: any[];    // 对话历史
     codePath: string;      // 代码存储路径
   };
+  error?: string;
+}
+```
+
+
+#### 4.3.5 确认需求（进入版本分段阶段）
+
+用户点击需求卡片的「确认需求，规划版本」后调用。主进程将项目状态从 `draft` 置为 `planned`，并在后台调用 DSH 生成**版本分段计划**（V1 为最小可用版本 MVP，其余功能归入 V2+），计划生成后可通过 `project:get` 读取 `versionPlan` 字段。
+
+| 属性 | 值 |
+|------|-----|
+| **通道名** | `project:confirm` |
+| **方向** | 渲染进程 → 主进程 |
+| **模式** | 请求-响应（invoke） |
+
+**参数**：
+
+```typescript
+interface ProjectConfirmParams {
+  projectId: string;
+}
+```
+
+**返回值**：
+
+```typescript
+interface ProjectConfirmResult {
+  success: boolean;
+  error?: string;
+}
+```
+
+> 说明：本接口**不会**直接启动代码开发。写代码前必须先经用户确认版本分段计划（见 4.3.6），以确保先做 MVP 而非一次性堆砌全部功能。
+
+
+#### 4.3.6 确认版本分段计划（启动开发）
+
+用户点击版本分段计划卡片的「确认计划，开始开发 V1」后调用。主进程校验/应用用户调整后的版本计划（若 `plan` 省略则采用已生成的计划），将项目状态置为 `developing`，并启动 DSH 开发团队只实现 **V1 功能子集**。
+
+| 属性 | 值 |
+|------|-----|
+| **通道名** | `project:confirm-plan` |
+| **方向** | 渲染进程 → 主进程 |
+| **模式** | 请求-响应（invoke） |
+
+**参数**：
+
+```typescript
+interface ProjectConfirmPlanParams {
+  projectId: string;
+  plan?: {                    // 用户调整后的版本计划；省略则使用已生成的计划
+    versions: {
+      label: string;          // 版本标签，如 "V1" / "V2"
+      description: string;
+      features: string[];
+    }[];
+  };
+}
+```
+
+**返回值**：
+
+```typescript
+interface ProjectConfirmPlanResult {
+  success: boolean;
   error?: string;
 }
 ```
@@ -899,6 +971,8 @@ declare global {
 | Project | `project:create` | 渲染→主 | invoke |
 | Project | `project:delete` | 渲染→主 | invoke |
 | Project | `project:get` | 渲染→主 | invoke |
+| Project | `project:confirm` | 渲染→主 | invoke |
+| Project | `project:confirm-plan` | 渲染→主 | invoke |
 | Project | `project:select-location` | 渲染→主 | invoke |
 | Export | `export:start` | 渲染→主 | invoke |
 | Export | `export:complete` | 主→渲染 | on |
@@ -914,6 +988,7 @@ declare global {
 
 | 版本 | 日期 | 变更说明 |
 |------|------|---------|
+| v1.2 | 2026-08-21 | 项目状态新增 `planned`；新增 `project:confirm`（确认需求 → 生成版本分段计划）与 `project:confirm-plan`（确认计划 → 只开发 V1）；`project:get` 返回 `versionPlan` 字段；共 23 个接口 |
 | v1.1 | 2026-08-19 | 新增 `project:select-location` 通道，`project:create` 支持 `location` 参数（自定义保存位置） |
 | v1.0 | 2026-08-19 | 初始版本，定义 21 个核心接口 |
 

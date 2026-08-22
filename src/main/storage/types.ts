@@ -1,4 +1,4 @@
-import type { ProjectStatus, ProjectTemplate } from '../../shared/types/project';
+import type { ProjectStatus, ProjectTemplate, VersionPlan } from '../../shared/types/project';
 import type { SignalType } from '../../shared/types/chat';
 
 /**
@@ -39,6 +39,8 @@ export interface ProjectMeta {
   description?: string;
   status: ProjectStatus;
   template?: ProjectTemplate;
+  /** 版本分段计划（需求确认后、写代码前生成；确认计划后据此开发 V1） */
+  versionPlan?: VersionPlan | null;
   createdAt: string;
   updatedAt: string;
   lastOpenedAt: string;
@@ -105,6 +107,8 @@ export interface ChatHistory {
 export interface ExportOptions {
   includeDocker?: boolean;
   includeReadme?: boolean;
+  /** 上线配置（缺省时使用默认配置，全部本地零依赖） */
+  config?: import('../../shared/types/export').DeployConfig;
 }
 
 // ========== StorageManager 接口（数据库文档 4.1） ==========

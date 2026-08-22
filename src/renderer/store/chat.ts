@@ -3,7 +3,7 @@
  * 与主进程通过 chat:send / chat:response / chat:signal / chat:history 通信。
  */
 import { create } from 'zustand';
-import type { RequirementSummary } from '@shared/types/project';
+import type { RequirementSummary, VersionPlan, ProjectStatus } from '@shared/types/project';
 import type { ElementInfo, ElementSelectResult } from '@shared/types/preview';
 import { useUiStore } from './ui';
 
@@ -25,7 +25,9 @@ interface ChatState {
   isProcessing: boolean;
   currentProjectId: string | null;
   requirements: RequirementSummary | null;
-  projectStatus: 'draft' | 'developing' | 'ready' | 'exported' | null;
+  projectStatus: ProjectStatus | null;
+  /** 版本分段计划（需求确认后、写代码前） */
+  versionPlan: VersionPlan | null;
   /** 预览中选中的元素（口语修改上下文） */
   selectedElement: ElementInfo | null;
   /** 选中元素的友好描述（右侧检查器展示） */
@@ -34,6 +36,7 @@ interface ChatState {
   setProject: (id: string | null) => void;
   setRequirements: (req: RequirementSummary | null) => void;
   setProjectStatus: (status: ChatState['projectStatus']) => void;
+  setVersionPlan: (plan: VersionPlan | null) => void;
   setSelectedElement: (el: ElementInfo | null) => void;
   setElementInfo: (info: ElementSelectResult['elementInfo'] | null) => void;
   setProcessing: (v: boolean) => void;
@@ -51,6 +54,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   currentProjectId: null,
   requirements: null,
   projectStatus: null,
+  versionPlan: null,
   selectedElement: null,
   elementInfo: null,
 
@@ -59,12 +63,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       currentProjectId: id,
       requirements: null,
       projectStatus: null,
+      versionPlan: null,
       selectedElement: null,
       elementInfo: null,
       isProcessing: false,
     }),
   setRequirements: (req) => set({ requirements: req }),
   setProjectStatus: (status) => set({ projectStatus: status }),
+  setVersionPlan: (plan) => set({ versionPlan: plan }),
   setSelectedElement: (el) => set({ selectedElement: el }),
   setElementInfo: (info) => set({ elementInfo: info }),
   setProcessing: (v) => set({ isProcessing: v }),

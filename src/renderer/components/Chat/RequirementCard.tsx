@@ -1,15 +1,19 @@
-import type { RequirementSummary } from '@shared/types/project';
+import type { RequirementSummary, ProjectStatus } from '@shared/types/project';
 
 interface RequirementCardProps {
   requirements: RequirementSummary;
-  status?: 'draft' | 'developing' | 'ready' | 'exported' | null;
+  status?: ProjectStatus | null;
   onConfirm: () => void;
 }
 
 /** 需求卡片（前端设计说明书 3.4） */
 export default function RequirementCard({ requirements, status, onConfirm }: RequirementCardProps) {
   const confirmed: boolean =
-    requirements.confirmed || status === 'developing' || status === 'ready';
+    requirements.confirmed ||
+    status === 'planned' ||
+    status === 'developing' ||
+    status === 'ready' ||
+    status === 'exported';
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -51,15 +55,16 @@ export default function RequirementCard({ requirements, status, onConfirm }: Req
         <button
           type="button"
           onClick={onConfirm}
-          disabled={status === 'developing'}
-          className="mt-4 w-full rounded-lg bg-brand py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
+          className="mt-4 w-full rounded-lg bg-brand py-2 text-sm font-medium text-white transition-colors hover:bg-brand-hover"
         >
-          {status === 'developing' ? '开发进行中…' : '确认需求，开始开发'}
+          确认需求，规划版本
         </button>
       )}
 
-      {status === 'developing' && (
-        <div className="mt-3 text-center text-xs text-slate-400">开发团队正在工作…</div>
+      {status === 'planned' && (
+        <div className="mt-3 text-center text-xs text-slate-400">
+          正在规划版本分段，先做最小可用版本…
+        </div>
       )}
       {status === 'ready' && (
         <div className="mt-3 text-center text-xs text-green-600">✅ 应用已就绪，点击左侧「预览」查看</div>

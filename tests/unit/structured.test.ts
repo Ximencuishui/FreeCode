@@ -1,4 +1,10 @@
-import { tryExtractJson, tryParseRequirements, toRequirements } from '../../src/main/dsh/structured';
+import {
+  tryExtractJson,
+  tryParseRequirements,
+  toRequirements,
+  tryParseVersionPlan,
+  fallbackVersionPlan,
+} from '../../src/main/dsh/structured';
 
 /**
  * 需求结构化解析单元测试（测试计划 4.2.2 UT-REQ-001~004）。
@@ -59,5 +65,44 @@ describe('需求结构化解析（UT-REQ）', () => {
     expect(req.confirmed).toBe(false);
     expect(req.coreFeatures).toEqual(['功能']);
     expect(req.history).toHaveLength(1);
+  });
+});
+
+describe('版本分段计划解析（UT-PLAN）', () => {
+  it('完整计划：解析出各版本', () => {
+    const reply = JSON.stringify({
+      versions: [
+        { label: 'V1', description: '先能记账', features: ['记录收支'] },
+        { label: 'V2', description: '看得更明白', features: ['分类统计'] },
+      ],
+    });
+    const plan = tryParseVersionPlan(reply);
+    expect(plan).not.toBeNull();
+    expect(plan?.versions).toHaveLength(2);
+    expect(plan?.versions[0].label).toBe('V1');
+    expect(plan?.versions[0].features).toEqual(['记录收支']);
+    expect(plan?.versions[1].features).toEqual(['分类统计']);
+  });
+
+  it('空 versions 或缺 features：返回 null', () => {
+    expect(tryParseVersionPlan(JSON.stringify({ versions: [] }))).toBeNull();
+    expect(tryParseVersionPlan(JSON.stringify({ versions: [{ label: 'V1' }] }))).toBeNull();
+    expect(tryParseVersionPlan('普通文本')).toBeNull();
+  });
+
+  it('代码块包裹也可解析', () => {
+    const reply = '```json\n{"versions":[{"label":"V1","description":"x","features":["A"]}]}\n```';
+    expect(tryParseVersionPlan(reply)?.versions[0].features).toEqual(['A']);
+  });
+
+  it('fallbackVersionPlan：V1=首个功能，其余归 V2', () => {
+    const plan = fallbackVersionPlan(['记录收支', '分类统计', '导出']);
+    expect(plan.versions[0].features).toEqual(['记录收支']);
+    expect(plan.versions[1].features).toEqual(['分类统计', '导出']);
+
+    // 单功能：只有 V1
+    const single = fallbackVersionPlan(['记录收支']);
+    expect(single.versions).toHaveLength(1);
+    expect(single.versions[0].features).toEqual(['记录收支']);
   });
 });
