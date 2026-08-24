@@ -71,8 +71,9 @@ contextBridge.exposeInMainWorld('electron', {
 | 导出接口 | 2 个 | 导出部署包 |
 | 设置接口 | 2 个 | 获取/更新设置 |
 | API Key 接口 | 2 个 | 保存/验证 API Key |
-| 应用接口 | 2 个 | 应用信息、退出 |
-| **合计** | **23 个** | |
+| 数据库接口 | 1 个 | 一键申请云数据库（Neon / Supabase） |
+| 应用接口 | 3 个 | 应用信息、退出、打开外部链接 |
+| **合计** | **25 个** | |
 
 
 ## 四、接口详细设计
@@ -770,9 +771,60 @@ interface ApiKeyValidateResult {
 ```
 
 
-### 4.7 应用接口（App）
+### 4.7 数据库接口（Database）
 
-#### 4.7.1 获取应用信息
+> 云数据库一键申请：渲染进程提供云服务商 API Key，主进程调用服务商官方 API
+> （Neon / Supabase，免费额度 500MB）自动创建 PostgreSQL 数据库并返回连接信息，
+> 免去用户手动购买、填表。服务商 API Key **仅本次请求使用，不落盘**。
+
+#### 4.7.1 一键申请云数据库
+
+| 属性 | 值 |
+|------|-----|
+| **通道名** | `db:provision` |
+| **方向** | 渲染进程 → 主进程 |
+| **模式** | 请求-响应（invoke） |
+
+**参数**：
+
+```typescript
+interface DbProvisionParams {
+  provider: 'neon' | 'supabase';  // 云服务商（新增服务商可插拔扩展）
+  apiKey: string;                 // 云服务商 API Key（Neon: napi_…；Supabase: sbp_…）
+  name?: string;                  // 数据库名（可选，缺省自动生成）
+  region?: string;                // 云区域 ID（可选，缺省使用服务商默认区域）
+}
+```
+
+**返回值**：
+
+```typescript
+type DbProvisionResult =
+  | { success: true; db: DbProvisionInfo }
+  | { success: false; error: { code: string; message: string; details?: unknown } };
+
+interface DbProvisionInfo {
+  provider: 'neon' | 'supabase';
+  instanceId: string;      // 服务商侧项目/实例 ID
+  host: string;
+  port: number;
+  name: string;            // 数据库名
+  user: string;            // 用户名
+  password: string;        // 密码（仅创建时返回一次）
+  connectionString: string; // 完整连接串
+}
+```
+
+**错误码**：`INVALID_PARAMS`、`API_KEY_INVALID`、`DB_PROVIDER_UNSUPPORTED`、`DB_PROVISION_FAILED`
+
+**安全说明**：
+- API Key 经 IPC 传入主进程，仅本次请求使用，不写入本地存储
+- 返回的数据库密码仅在创建时可见一次，请及时保存
+
+
+### 4.8 应用接口（App）
+
+#### 4.8.1 获取应用信息
 
 | 属性 | 值 |
 |------|-----|
@@ -794,7 +846,7 @@ interface AppInfoResult {
 ```
 
 
-#### 4.7.2 退出应用
+#### 4.8.2 退出应用
 
 | 属性 | 值 |
 |------|-----|
@@ -835,6 +887,8 @@ interface AppInfoResult {
 | `PREVIEW_ALREADY_RUNNING` | 预览已在运行 |
 | `EXPORT_FAILED` | 导出失败 |
 | `FILE_IO_ERROR` | 文件读写错误 |
+| `DB_PROVIDER_UNSUPPORTED` | 云数据库服务商未支持 |
+| `DB_PROVISION_FAILED` | 云数据库创建失败（网络/服务商侧错误） |
 
 ### 5.3 统一错误响应格式
 
@@ -976,6 +1030,7 @@ declare global {
 | Project | `project:select-location` | 渲染→主 | invoke |
 | Export | `export:start` | 渲染→主 | invoke |
 | Export | `export:complete` | 主→渲染 | on |
+| Database | `db:provision` | 渲染→主 | invoke |
 | Settings | `settings:get` | 渲染→主 | invoke |
 | Settings | `settings:update` | 渲染→主 | invoke |
 | ApiKey | `apikey:save` | 渲染→主 | invoke |
@@ -988,6 +1043,7 @@ declare global {
 
 | 版本 | 日期 | 变更说明 |
 |------|------|---------|
+| v1.3 | 2026-08-21 | 新增 `db:provision`（一键申请云数据库：Neon / Supabase 官方 API 自动创建并返回连接信息）；新增错误码 `DB_PROVIDER_UNSUPPORTED` / `DB_PROVISION_FAILED`；共 25 个接口 |
 | v1.2 | 2026-08-21 | 项目状态新增 `planned`；新增 `project:confirm`（确认需求 → 生成版本分段计划）与 `project:confirm-plan`（确认计划 → 只开发 V1）；`project:get` 返回 `versionPlan` 字段；共 23 个接口 |
 | v1.1 | 2026-08-19 | 新增 `project:select-location` 通道，`project:create` 支持 `location` 参数（自定义保存位置） |
 | v1.0 | 2026-08-19 | 初始版本，定义 21 个核心接口 |

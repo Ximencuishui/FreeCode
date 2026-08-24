@@ -1,6 +1,6 @@
 /**
  * IPC 通道名常量与统一错误契约。
- * 依据《FreeCoder API 接口设计文档》v1.0 定义（23 个通道、错误码体系）。
+ * 依据《FreeCoder API 接口设计文档》v1.3 定义（25 个通道、错误码体系）。
  */
 
 /** 全部 IPC 通道（渲染进程 ↔ 主进程） */
@@ -27,6 +27,8 @@ export const IpcChannels = {
   // 导出
   exportStart: 'export:start',
   exportComplete: 'export:complete',
+  // 云数据库（一键申请）
+  dbProvision: 'db:provision',
   // 设置
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
@@ -62,6 +64,8 @@ export type ErrorCode =
   | 'PREVIEW_ALREADY_RUNNING'
   | 'EXPORT_FAILED'
   | 'FILE_IO_ERROR'
+  | 'DB_PROVIDER_UNSUPPORTED'
+  | 'DB_PROVISION_FAILED'
   // 工程占位
   | 'NOT_IMPLEMENTED';
 

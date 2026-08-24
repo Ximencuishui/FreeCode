@@ -6,11 +6,18 @@ import type {
   LoginConfig,
   LoginMethod,
 } from '@shared/types/export';
+import type {
+  CloudDbProvider,
+  CloudDbProviderMeta,
+  DbProvisionInfo,
+} from '@shared/types/dbprovision';
 
 /**
  * 上线配置向导（导出前的地基 UI）。
  * 五步：数据库 → 登录方式 → 邮箱 → JWT → 确认导出。
  * 设计原则：默认零配置、可跳过、第三方密钥可后补；用户只做「点选 + 照表单填」。
+ * 数据库步骤支持「一键申请云数据库」：填 API Key 后由主进程调用云服务商 API
+ * 自动创建（Neon / Supabase，免费 500MB），连接信息自动回填。
  */
 
 interface DeployConfigWizardProps {
@@ -50,6 +57,41 @@ const DB_OPTIONS: { value: DbProvider; label: string; desc: string }[] = [
   { value: 'mysql', label: 'MySQL', desc: '更强大，适合需要独立数据库的场景' },
   { value: 'postgres', label: 'PostgreSQL', desc: '功能最全，适合复杂数据需求' },
 ];
+
+/** 云数据库服务商元信息（一键申请入口使用；Neon/Supabase 均为托管 PostgreSQL） */
+const CLOUD_DB_META: Record<CloudDbProvider, CloudDbProviderMeta> = {
+  neon: {
+    provider: 'neon',
+    label: 'Neon',
+    desc: 'Serverless PostgreSQL，秒级开通',
+    quota: '免费 500MB',
+    keyLabel: 'Neon API Key',
+    keyPlaceholder: 'napi_…',
+    keyUrl: 'https://console.neon.tech/account/api-keys',
+    regions: [
+      { label: '美国东部（默认）', regionId: 'aws-us-east-2' },
+      { label: '美国西部', regionId: 'aws-us-west-2' },
+      { label: '亚太（新加坡）', regionId: 'aws-ap-southeast-1' },
+    ],
+  },
+  supabase: {
+    provider: 'supabase',
+    label: 'Supabase',
+    desc: '托管 PostgreSQL + 后端服务',
+    quota: '免费 500MB',
+    keyLabel: 'Supabase Access Token',
+    keyPlaceholder: 'sbp_…',
+    keyUrl: 'https://supabase.com/dashboard/account/tokens',
+    regions: [
+      { label: '美国东部（默认）', regionId: 'us-east-1' },
+      { label: '美国西部', regionId: 'us-west-1' },
+      { label: '亚太（新加坡）', regionId: 'ap-southeast-1' },
+      { label: '欧洲中部', regionId: 'eu-central-1' },
+    ],
+  },
+};
+
+const CLOUD_DB_ORDER: CloudDbProvider[] = ['neon', 'supabase'];
 
 const inputCls =
   'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand focus:outline-none';
@@ -94,6 +136,17 @@ export default function DeployConfigWizard({
   const [step, setStep] = useState(0);
   const [touched, setTouched] = useState(false); // 点击过下一步后显示校验提示
 
+  // —— 一键申请云数据库状态 ——
+  const [cloudUseMode, setCloudUseMode] = useState<'provision' | 'manual'>('provision');
+  const [cloudProvider, setCloudProvider] = useState<CloudDbProvider>('neon');
+  const [apiKey, setApiKey] = useState('');
+  const [dbName, setDbName] = useState('');
+  const [region, setRegion] = useState('');
+  const [provisioning, setProvisioning] = useState(false);
+  const [provisionError, setProvisionError] = useState<string | null>(null);
+  const [provisioned, setProvisioned] = useState<DbProvisionInfo | null>(null);
+  const [copied, setCopied] = useState(false);
+
   const update = (patch: Partial<DeployConfig>) => onChange({ ...config, ...patch });
   const updateDb = (patch: Partial<DeployConfig['db']>) =>
     update({ db: { ...config.db, ...patch } });
@@ -104,6 +157,61 @@ export default function DeployConfigWizard({
 
   const isCloud = config.db.provider !== 'sqlite' && config.db.mode === 'cloud';
   const isDockerDb = config.db.provider !== 'sqlite' && config.db.mode !== 'cloud';
+  /** 一键申请仅对 PostgreSQL 有效（Neon / Supabase 均为托管 PostgreSQL） */
+  const canProvision = config.db.provider === 'postgres';
+
+  /** 选择数据库类型时重置一键申请状态，避免残留旧连接信息 */
+  const selectDbProvider = (provider: DbProvider) => {
+    updateDb({ provider, mode: 'docker' });
+    setProvisioned(null);
+    setProvisionError(null);
+  };
+
+  /** 调用主进程 db:provision，成功后自动回填连接信息 */
+  const handleProvision = async () => {
+    if (provisioning) return;
+    setProvisioning(true);
+    setProvisionError(null);
+    setProvisioned(null);
+    try {
+      const result = await window.electron.db.provision({
+        provider: cloudProvider,
+        apiKey,
+        name: dbName.trim() || undefined,
+        region: region.trim() || undefined,
+      });
+      if (result.success) {
+        const info = result.db;
+        setProvisioned(info);
+        updateDb({
+          mode: 'cloud',
+          host: info.host,
+          port: info.port,
+          name: info.name,
+          user: info.user,
+          password: info.password,
+          cloudProvider: info.provider,
+          instanceId: info.instanceId,
+        });
+      } else {
+        setProvisionError(result.error?.message ?? '云数据库申请失败');
+      }
+    } catch (err) {
+      setProvisionError(err instanceof Error ? err.message : '云数据库申请失败，请重试');
+    } finally {
+      setProvisioning(false);
+    }
+  };
+
+  const copyConnection = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // 剪贴板不可用时忽略（仍可手动选择复制）
+    }
+  };
 
   /** 当前步骤是否填写完整 */
   const stepValid = (): boolean => {
@@ -222,7 +330,7 @@ export default function DeployConfigWizard({
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => updateDb({ provider: opt.value, mode: 'docker' })}
+                  onClick={() => selectDbProvider(opt.value)}
                   className={`flex w-full items-start gap-3 rounded-xl border p-3 text-left transition-colors ${
                     config.db.provider === opt.value
                       ? 'border-brand bg-brand/5'
@@ -254,7 +362,11 @@ export default function DeployConfigWizard({
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => updateDb({ mode: 'docker' })}
+                    onClick={() => {
+                      updateDb({ mode: 'docker' });
+                      setProvisioned(null);
+                      setProvisionError(null);
+                    }}
                     className={`flex-1 rounded-lg border px-3 py-2 text-sm ${
                       isDockerDb
                         ? 'border-brand bg-brand/5 text-brand'
@@ -281,46 +393,218 @@ export default function DeployConfigWizard({
                   </p>
                 )}
                 {isCloud && (
-                  <div className="space-y-2">
-                    <p className="text-xs text-slate-500">
-                      填写云数据库连接信息（如腾讯云/阿里云数据库购买页提供）
-                    </p>
-                    <Field
-                      label="服务器地址"
-                      value={config.db.host ?? ''}
-                      onChange={(v) => updateDb({ host: v })}
-                      placeholder="例如：rm-xxx.mysql.tencentcdb.com"
-                      error={touched && !config.db.host?.trim()}
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <Field
-                        label="端口"
-                        value={config.db.port ? String(config.db.port) : ''}
-                        onChange={(v) => updateDb({ port: Number(v) || undefined })}
-                        placeholder={config.db.provider === 'mysql' ? '3306' : '5432'}
-                      />
-                      <Field
-                        label="数据库名"
-                        value={config.db.name ?? ''}
-                        onChange={(v) => updateDb({ name: v })}
-                        placeholder="freecoder"
-                      />
-                    </div>
-                    <Field
-                      label="用户名"
-                      value={config.db.user ?? ''}
-                      onChange={(v) => updateDb({ user: v })}
-                      placeholder="freecoder"
-                    />
-                    <Field
-                      label="密码"
-                      type="password"
-                      value={config.db.password ?? ''}
-                      onChange={(v) => updateDb({ password: v })}
-                      placeholder="数据库密码"
-                    />
-                    {touched && !config.db.host?.trim() && (
-                      <p className="text-xs text-red-500">请填写服务器地址</p>
+                  <div className="space-y-3">
+                    {/* 一键申请 / 手动填写 切换（仅 PostgreSQL 支持一键申请） */}
+                    {canProvision && (
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setCloudUseMode('provision')}
+                          className={`flex-1 rounded-lg border px-3 py-2 text-sm ${
+                            cloudUseMode === 'provision'
+                              ? 'border-brand bg-brand/5 text-brand'
+                              : 'border-slate-300 text-slate-600 hover:border-slate-400'
+                          }`}
+                        >
+                          ✨ 一键申请（推荐）
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCloudUseMode('manual')}
+                          className={`flex-1 rounded-lg border px-3 py-2 text-sm ${
+                            cloudUseMode === 'manual'
+                              ? 'border-brand bg-brand/5 text-brand'
+                              : 'border-slate-300 text-slate-600 hover:border-slate-400'
+                          }`}
+                        >
+                          手动填写
+                        </button>
+                      </div>
+                    )}
+
+                    {canProvision && cloudUseMode === 'provision' ? (
+                      /* —— 一键申请云数据库 —— */
+                      <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
+                        <p className="text-xs text-slate-500">
+                          填写云服务商 API Key，点击申请后由 FreeCoder 自动在云端创建数据库（免费
+                          500MB，秒级开通），连接信息自动填入下方表单。
+                        </p>
+                        {/* 服务商选择 */}
+                        <div className="space-y-2">
+                          {CLOUD_DB_ORDER.map((p) => {
+                            const meta = CLOUD_DB_META[p];
+                            const active = cloudProvider === p;
+                            return (
+                              <button
+                                key={p}
+                                type="button"
+                                onClick={() => {
+                                  setCloudProvider(p);
+                                  setProvisioned(null);
+                                  setProvisionError(null);
+                                }}
+                                className={`flex w-full items-start gap-3 rounded-lg border p-2.5 text-left transition-colors ${
+                                  active
+                                    ? 'border-brand bg-brand/5'
+                                    : 'border-slate-200 hover:border-slate-300'
+                                }`}
+                              >
+                                <span
+                                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                                    active ? 'border-brand bg-brand' : 'border-slate-300'
+                                  }`}
+                                >
+                                  {active && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                                </span>
+                                <span>
+                                  <span className="block text-sm font-medium text-slate-800">
+                                    {meta.label}{' '}
+                                    <span className="text-xs font-normal text-brand">
+                                      {meta.quota}
+                                    </span>
+                                  </span>
+                                  <span className="block text-xs text-slate-500">{meta.desc}</span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {/* API Key */}
+                        <div>
+                          <div className="mb-1 flex items-center justify-between">
+                            <label className="text-xs font-medium text-slate-500">
+                              {CLOUD_DB_META[cloudProvider].keyLabel}
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void window.electron.app.openExternal(
+                                  CLOUD_DB_META[cloudProvider].keyUrl,
+                                )
+                              }
+                              className="text-xs font-medium text-brand hover:underline"
+                            >
+                              获取 API Key ↗
+                            </button>
+                          </div>
+                          <input
+                            type="password"
+                            className={inputCls}
+                            value={apiKey}
+                            onChange={(e) => setApiKey(e.target.value)}
+                            placeholder={CLOUD_DB_META[cloudProvider].keyPlaceholder}
+                          />
+                        </div>
+                        {/* 数据库名 + 区域 */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <Field
+                            label="数据库名（可选）"
+                            value={dbName}
+                            onChange={setDbName}
+                            placeholder="自动生成"
+                          />
+                          <div>
+                            <label className={labelCls}>区域（可选）</label>
+                            <select
+                              className={inputCls}
+                              value={region}
+                              onChange={(e) => setRegion(e.target.value)}
+                            >
+                              <option value="">默认区域</option>
+                              {CLOUD_DB_META[cloudProvider].regions.map((r) => (
+                                <option key={r.regionId} value={r.regionId}>
+                                  {r.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        {/* 申请按钮 */}
+                        <button
+                          type="button"
+                          onClick={handleProvision}
+                          disabled={provisioning || !apiKey.trim()}
+                          className="w-full rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {provisioning ? '⏳ 正在云端创建数据库…' : '🚀 一键申请数据库'}
+                        </button>
+                        {provisionError && (
+                          <p className="text-xs text-red-500">{provisionError}</p>
+                        )}
+                        {touched && !config.db.host?.trim() && !provisioning && (
+                          <p className="text-xs text-red-500">
+                            请先点击「一键申请数据库」，或切换到「手动填写」
+                          </p>
+                        )}
+                        {/* 申请成功回显 */}
+                        {provisioned && (
+                          <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                            <p className="text-sm font-medium text-emerald-700">
+                              ✅ 数据库创建成功，连接信息已自动填入
+                            </p>
+                            <div className="flex items-center justify-between gap-2">
+                              <code className="min-w-0 flex-1 truncate text-xs text-slate-700">
+                                {provisioned.connectionString}
+                              </code>
+                              <button
+                                type="button"
+                                onClick={() => void copyConnection(provisioned.connectionString)}
+                                className="shrink-0 rounded border border-emerald-300 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100"
+                              >
+                                {copied ? '已复制 ✓' : '复制连接串'}
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-emerald-600">
+                              实例 ID：{provisioned.instanceId} · {provisioned.host}:
+                              {provisioned.port}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* —— 手动填写 —— */
+                      <div className="space-y-2">
+                        <p className="text-xs text-slate-500">
+                          填写云数据库连接信息（如腾讯云/阿里云数据库购买页提供）
+                        </p>
+                        <Field
+                          label="服务器地址"
+                          value={config.db.host ?? ''}
+                          onChange={(v) => updateDb({ host: v })}
+                          placeholder="例如：rm-xxx.mysql.tencentcdb.com"
+                          error={touched && !config.db.host?.trim()}
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <Field
+                            label="端口"
+                            value={config.db.port ? String(config.db.port) : ''}
+                            onChange={(v) => updateDb({ port: Number(v) || undefined })}
+                            placeholder={config.db.provider === 'mysql' ? '3306' : '5432'}
+                          />
+                          <Field
+                            label="数据库名"
+                            value={config.db.name ?? ''}
+                            onChange={(v) => updateDb({ name: v })}
+                            placeholder="freecoder"
+                          />
+                        </div>
+                        <Field
+                          label="用户名"
+                          value={config.db.user ?? ''}
+                          onChange={(v) => updateDb({ user: v })}
+                          placeholder="freecoder"
+                        />
+                        <Field
+                          label="密码"
+                          type="password"
+                          value={config.db.password ?? ''}
+                          onChange={(v) => updateDb({ password: v })}
+                          placeholder="数据库密码"
+                        />
+                        {touched && !config.db.host?.trim() && (
+                          <p className="text-xs text-red-500">请填写服务器地址</p>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -538,7 +822,11 @@ export default function DeployConfigWizard({
                   {config.db.provider === 'sqlite'
                     ? '本地数据库（零配置）'
                     : config.db.mode === 'cloud'
-                      ? `云数据库 ${config.db.provider.toUpperCase()}`
+                      ? `云数据库 ${config.db.provider.toUpperCase()}${
+                          config.db.cloudProvider
+                            ? `（${CLOUD_DB_META[config.db.cloudProvider].label} 一键创建）`
+                            : ''
+                        }`
                       : `${config.db.provider.toUpperCase()}（内置）`}
                 </span>
               </div>

@@ -62,6 +62,9 @@ export function renderEnv(config: DeployConfig, ctx: RenderContext): string {
   ];
 
   if (isCloud) {
+    if (db.cloudProvider) {
+      lines.push(`# 云数据库（FreeCoder 一键创建：${db.cloudProvider}${db.instanceId ? `，实例 ${db.instanceId}` : ''}）`);
+    }
     lines.push(
       `DB_HOST=${cleanEnv(db.host)}`,
       `DB_PORT=${db.port ?? DB_DEFAULTS[db.provider].port}`,
@@ -185,7 +188,8 @@ function describeDb(config: DeployConfig): string {
   if (db.mode === 'cloud') {
     const port = db.port ?? DB_DEFAULTS[db.provider].port;
     const host = cleanEnv(db.host) || '（未填写）';
-    return `云数据库 ${db.provider}（${host}:${port}）`;
+    const source = db.cloudProvider ? `（FreeCoder 一键创建：${db.cloudProvider}）` : '';
+    return `云数据库 ${db.provider}（${host}:${port}）${source}`;
   }
   return `${db.provider === 'mysql' ? 'MySQL 8' : 'PostgreSQL 16'}（docker-compose 内置，开箱即用）`;
 }

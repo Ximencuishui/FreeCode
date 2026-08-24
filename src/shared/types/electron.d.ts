@@ -31,6 +31,10 @@ import type {
 } from './project';
 import type { ExportStartParams, ExportStartResult, ExportCompleteEvent } from './export';
 import type {
+  DbProvisionParams,
+  DbProvisionResult,
+} from './dbprovision';
+import type {
   SettingsGetResult,
   SettingsUpdateParams,
   SettingsUpdateResult,
@@ -45,7 +49,7 @@ type Unsubscribe = () => void;
 
 /**
  * preload 通过 contextBridge 暴露到渲染进程的全局 API（`window.electron`）。
- * 类型与《FreeCoder API 接口设计文档》v1.0 的 21 个通道一一对应。
+ * 类型与《FreeCoder API 接口设计文档》v1.3 的 25 个通道一一对应。
  */
 declare global {
   interface Window {
@@ -77,6 +81,10 @@ declare global {
       export: {
         start: (params: ExportStartParams) => Promise<ExportStartResult>;
         onComplete: (callback: (data: ExportCompleteEvent) => void) => Unsubscribe;
+      };
+      db: {
+        /** 一键申请云数据库（调用云服务商 API 自动创建，返回连接信息） */
+        provision: (params: DbProvisionParams) => Promise<DbProvisionResult>;
       };
       settings: {
         get: () => Promise<SettingsGetResult>;

@@ -11,11 +11,14 @@ export type DbProvider = 'sqlite' | 'mysql' | 'postgres';
 /** 数据库使用方式（仅 mysql / postgres 有效） */
 export type DbMode = 'docker' | 'cloud';
 
+/** 云数据库服务商（一键申请来源，仅记录用） */
+export type DbCloudProvider = 'neon' | 'supabase';
+
 export interface DbConfig {
   provider: DbProvider;
   /**
    * - docker：由 docker-compose 内置数据库服务（默认，零外部依赖）
-   * - cloud：使用云数据库（需填写连接信息）
+   * - cloud：使用云数据库（连接信息由「一键申请」自动填充或手动填写）
    */
   mode?: DbMode;
   /** 云数据库连接信息（mode=cloud 时必填） */
@@ -24,6 +27,10 @@ export interface DbConfig {
   name?: string;
   user?: string;
   password?: string;
+  /** 一键申请来源服务商（mode=cloud 且通过 db:provision 创建时记录） */
+  cloudProvider?: DbCloudProvider;
+  /** 服务商侧项目/实例 ID（通过 db:provision 创建时记录） */
+  instanceId?: string;
 }
 
 /** 登录方式（password 始终启用，其余为第三方登录） */
