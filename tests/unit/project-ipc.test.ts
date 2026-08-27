@@ -102,10 +102,11 @@ function getHandler(channel: string): (event: unknown, params: unknown) => Promi
 describe('项目管理域 IPC 守卫（版本分段）', () => {
   const developer = { startDevelopment: jest.fn() };
   const planner = { generatePlan: jest.fn(async () => undefined) };
+  const dsh = { runTask: jest.fn(async () => ({ reply: 'REVIEW_PASS', exitCode: 0 })) };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    registerProjectIpc(new FakeStorage(), developer as never, planner as never);
+    registerProjectIpc(new FakeStorage(), dsh as never, developer as never, planner as never);
   });
 
   it('project:confirm 幂等：planned 状态重复确认不再生成计划', async () => {
@@ -115,7 +116,7 @@ describe('项目管理域 IPC 守卫（版本分段）', () => {
     await storage.updateProjectMeta(meta.id, { status: 'planned' });
     // 重新注册，使用带预置数据的 storage
     jest.clearAllMocks();
-    registerProjectIpc(storage, developer as never, planner as never);
+    registerProjectIpc(storage, dsh as never, developer as never, planner as never);
 
     const handler = getHandler(IpcChannels.projectConfirm);
     const result = await handler({}, { projectId: meta.id });
@@ -131,7 +132,7 @@ describe('项目管理域 IPC 守卫（版本分段）', () => {
     await storage.saveRequirements(meta.id, makeRequirements(meta.id));
     await storage.updateProjectMeta(meta.id, { status: 'developing' });
     jest.clearAllMocks();
-    registerProjectIpc(storage, developer as never, planner as never);
+    registerProjectIpc(storage, dsh as never, developer as never, planner as never);
 
     const handler = getHandler(IpcChannels.projectConfirm);
     await handler({}, { projectId: meta.id });
@@ -188,7 +189,7 @@ describe('项目管理域 IPC 守卫（版本分段）', () => {
     };
     developer.startDevelopment.mockImplementation(async () => undefined);
     jest.clearAllMocks();
-    registerProjectIpc(storage, developer as never, planner as never);
+    registerProjectIpc(storage, dsh as never, developer as never, planner as never);
 
     const handler = getHandler(IpcChannels.projectConfirmPlan);
     const result = await handler({}, { projectId: meta.id, plan: goodPlan });

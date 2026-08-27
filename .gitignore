@@ -33,3 +33,9 @@ Thumbs.db
 # npm cache (local cache)
 .npm-cache/
 
+# 内置 DSH / Node 运行时（由 scripts/bundle-dsh.mjs 生成，体积大不入库）
+resources/dsh/*
+!resources/dsh/.gitkeep
+resources/node/*
+!resources/node/.gitkeep
+

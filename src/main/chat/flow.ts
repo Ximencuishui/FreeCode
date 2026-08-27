@@ -1,5 +1,5 @@
 import type { StorageManager } from '../storage/types';
-import type { DSHService } from '../dsh/service';
+import type { DSHService, DSHProgressUpdate } from '../dsh/service';
 import type { ElementInfo } from '../../shared/types/preview';
 import { buildAssistantTask, buildModifyTask } from '../dsh/prompt';
 import { tryParseRequirements, toRequirements } from '../dsh/structured';
@@ -9,10 +9,11 @@ export interface ChatFlowDeps {
   storage: StorageManager;
   dsh: Pick<DSHService, 'runTask'>;
 }
-
 export interface ChatSendOutcome {
   messageId: string;
   reply: string;
+  /** 模型推理过程（思考过程，可为空） */
+  reasoning?: string;
 }
 
 /**
@@ -28,6 +29,8 @@ export class ChatFlow {
     projectId: string,
     message: string,
     selectedElement?: ElementInfo,
+    onProgress?: (update: DSHProgressUpdate) => void,
+    signal?: AbortSignal,
   ): Promise<ChatSendOutcome> {
     const storage = this.deps.storage;
 
@@ -51,8 +54,13 @@ export class ChatFlow {
       ? buildModifyTask(message, selectedElement, requirements)
       : buildAssistantTask({ message, history, requirements });
 
-    // 3. 调用 DSH（以项目代码目录为 workspace）
-    const result = await this.deps.dsh.runTask(storage.getProjectCodePath(projectId), task);
+    // 3. 调用 DSH（以项目代码目录为 workspace；onProgress 转发实时推理增量，signal 支持中断）
+    const result = await this.deps.dsh.runTask(
+      storage.getProjectCodePath(projectId),
+      task,
+      onProgress,
+      signal,
+    );
 
     // 4. 需求阶段：若需求收敛则保存需求卡片
     if (!isModifyPhase) {
@@ -66,9 +74,10 @@ export class ChatFlow {
     const saved = await storage.saveChatMessage(projectId, {
       role: 'assistant',
       content: result.reply,
+      reasoning: result.reasoning,
       isComplete: true,
     });
 
-    return { messageId: saved.id, reply: result.reply };
+    return { messageId: saved.id, reply: result.reply, reasoning: result.reasoning };
   }
 }

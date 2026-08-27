@@ -1,6 +1,6 @@
 /**
- * FreeCoder 应用 Logo（内联 SVG，与 resources/icons 中的应用图标同款设计）：
- * 品牌蓝渐变圆角方块 + 白色代码尖括号 + 右上角星光。
+ * FreeCoder 应用 Logo（内联 SVG，与 public/favicon.png 同款新品牌设计）：
+ * 蓝→青→绿对角渐变的圆角方块 + 白色字母 F + 右侧层叠小块（底部右下角）。
  * 页面可能同时渲染多个实例（标题栏/弹窗/聊天欢迎页），渐变 id 用 useId 保证唯一。
  */
 import { useId } from 'react';
@@ -20,36 +20,22 @@ export default function Logo({ size = 24, className }: { size?: number; classNam
       role="img"
     >
       <defs>
-        <linearGradient id={gradId} x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#5B9BE8" />
-          <stop offset="1" stopColor="#2E6EB5" />
+        <linearGradient id={gradId} x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#0061B2" />
+          <stop offset="0.5" stopColor="#0096B5" />
+          <stop offset="1" stopColor="#4AC38E" />
         </linearGradient>
       </defs>
-      <rect x="4" y="4" width="56" height="56" rx="14" fill={`url(#${gradId})`} />
-      <rect x="4" y="4" width="56" height="56" rx="14" stroke="#2E6EB5" strokeOpacity="0.35" />
-      {/* 代码尖括号 </> */}
-      <path
-        d="M26 22 L17 32 L26 42"
-        stroke="#FFFFFF"
-        strokeWidth="5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-      <path
-        d="M38 22 L47 32 L38 42"
-        stroke="#FFFFFF"
-        strokeWidth="5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-      <path d="M36.5 20 L29.5 44" stroke="#FFFFFF" strokeWidth="4.5" strokeLinecap="round" />
-      {/* 右上角星光 */}
-      <path
-        d="M48.5 10.5 C49 13 51 15 53.5 15.5 C51 16 49 18 48.5 20.5 C48 18 46 16 43.5 15.5 C46 15 48 13 48.5 10.5 Z"
-        fill="#FFE08A"
-      />
+      {/* 右侧层叠小块（底层，露出主图块右/下边缘） */}
+      <rect x="49" y="3.5" width="14.5" height="58.5" rx="6.5" fill={`url(#${gradId})`} />
+      {/* 主图块 */}
+      <rect x="0.5" y="3.5" width="56" height="56" rx="13" fill={`url(#${gradId})`} />
+      {/* 白色字母 F（竖杆 + 上横 + 中横，圆角） */}
+      <g fill="#E0E0DC">
+        <rect x="15" y="12" width="9" height="38" rx="4.5" />
+        <rect x="15" y="12" width="25" height="8.5" rx="4.25" />
+        <rect x="15" y="28" width="22" height="9.5" rx="4.75" />
+      </g>
     </svg>
   );
 }

@@ -15,6 +15,24 @@ export interface ParsedRequirements {
   data_requirements?: string[];
   visual_style?: string;
   platform?: 'web' | 'mini-program' | 'both';
+  /** 主要页面/界面清单 */
+  pages?: string[];
+  /** 布局偏好 */
+  layout?: string;
+  /** 界面感觉（口语化） */
+  style_feeling?: string;
+  /** 主要使用设备 */
+  device?: 'desktop' | 'mobile' | 'both';
+  /** 关键操作流程 */
+  key_flows?: string[];
+  /** 登录方式 */
+  authentication?: 'none' | 'password' | 'wechat' | 'sms';
+  /** 使用规模 */
+  usage_scale?: 'solo' | 'team' | 'public';
+  /** 导出与分享需求 */
+  export_features?: string[];
+  /** 界面语言 */
+  ui_language?: 'zh-CN' | 'en-US' | 'both';
 }
 
 /** 从回复文本中提取 JSON：优先代码块，其次整体，最后截取首尾大括号 */
@@ -77,6 +95,7 @@ export function tryParseRequirements(reply: string): ParsedRequirements | null {
   if (!goal || !targetUsers || !coreFeatures) return null;
 
   const platform = asString(obj.platform);
+  const device = asString(obj.device);
   return {
     project_name: asString(obj.project_name) ?? asString(obj.name),
     goal,
@@ -86,7 +105,38 @@ export function tryParseRequirements(reply: string): ParsedRequirements | null {
     data_requirements: asStringArray(obj.data_requirements) ?? asStringArray(obj.dataRequirements),
     visual_style: asString(obj.visual_style) ?? asString(obj.visualStyle),
     platform: platform === 'mini-program' || platform === 'both' ? platform : 'web',
+    pages: asStringArray(obj.pages),
+    layout: asString(obj.layout),
+    style_feeling: asString(obj.style_feeling) ?? asString(obj.styleFeeling),
+    device: device === 'mobile' || device === 'both' ? device : 'desktop',
+    key_flows: asStringArray(obj.key_flows) ?? asStringArray(obj.keyFlows),
+    authentication: asAuth(obj.authentication),
+    usage_scale: asScale(obj.usage_scale ?? obj.usageScale),
+    export_features: asStringArray(obj.export_features) ?? asStringArray(obj.exportFeatures),
+    ui_language: asLang(obj.ui_language ?? obj.uiLanguage),
   };
+}
+
+function asAuth(v: unknown): 'none' | 'password' | 'wechat' | 'sms' | undefined {
+  const s = asString(v);
+  if (s === 'password' || s === 'wechat' || s === 'sms') return s;
+  if (s === 'none' || s === 'no') return 'none';
+  return undefined;
+}
+
+function asScale(v: unknown): 'solo' | 'team' | 'public' | undefined {
+  const s = asString(v);
+  if (s === 'team' || s === 'public') return s;
+  if (s === 'solo' || s === 'single' || s === 'personal') return 'solo';
+  return undefined;
+}
+
+function asLang(v: unknown): 'zh-CN' | 'en-US' | 'both' | undefined {
+  const s = asString(v);
+  if (s === 'en-US' || s === 'en' || s === 'english') return 'en-US';
+  if (s === 'both' || s === 'bilingual') return 'both';
+  if (s === 'zh-CN' || s === 'zh' || s === 'chinese') return 'zh-CN';
+  return undefined;
 }
 
 /** 将解析结果映射为存储层 Requirements（数据库文档 3.4） */
@@ -103,6 +153,15 @@ export function toRequirements(projectId: string, parsed: ParsedRequirements): R
     dataRequirements: parsed.data_requirements,
     visualStyle: parsed.visual_style,
     platform: parsed.platform,
+    pages: parsed.pages,
+    layout: parsed.layout,
+    styleFeeling: parsed.style_feeling,
+    device: parsed.device,
+    keyFlows: parsed.key_flows,
+    authentication: parsed.authentication,
+    usageScale: parsed.usage_scale,
+    exportFeatures: parsed.export_features,
+    uiLanguage: parsed.ui_language,
     history: [{ version: 1, timestamp: now, changes: 'AI 助理生成需求' }],
     updatedAt: now,
   };

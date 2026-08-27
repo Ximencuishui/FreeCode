@@ -20,13 +20,28 @@ export interface ChatSendResult {
   error?: string;
 }
 
+export interface ChatStopParams {
+  projectId: string;
+}
+
+export interface ChatStopResult {
+  success: boolean;
+}
+
+/** chat:response 事件的来源（renderer 据此分别处理，如右侧窗口显示测试进度） */
+export type ChatResponseSource = 'chat' | 'developer' | 'auto-test';
+
 export interface ChatResponseEvent {
-  type: 'message' | 'thinking' | 'done' | 'error';
+  type: 'message' | 'thinking' | 'progress' | 'done' | 'error';
   content?: string;
+  /** 模型推理过程（思考过程；message 事件附带） */
+  reasoning?: string;
   messageId?: string;
   isComplete?: boolean;
   /** message 事件附带最新需求卡片（如有） */
   requirements?: RequirementSummary | null;
+  /** 事件来源：用于 renderer 区分通用对话 / 开发过程 / 自动测试 */
+  source?: ChatResponseSource;
   timestamp: string;
 }
 
@@ -50,6 +65,8 @@ export interface ChatMessageRecord {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  /** 模型推理过程（思考过程，可为空） */
+  reasoning?: string;
   timestamp: string;
 }
 

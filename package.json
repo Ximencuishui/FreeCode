@@ -1,13 +1,13 @@
 {
   "name": "freecoder",
-  "version": "0.1.0",
+  "version": "0.1.00",
   "description": "FreeCoder - 把想法变成可用的软件，像跟朋友聊天一样简单",
   "private": true,
   "license": "MIT",
   "author": "FreeCoder Team",
   "main": "dist/main/index.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev-runner.mjs",
     "build": "pnpm typecheck && vite build",
     "typecheck": "tsc --noEmit -p tsconfig.main.json && tsc --noEmit -p tsconfig.renderer.json",
     "lint": "eslint .",
@@ -15,7 +15,9 @@
     "test:unit": "jest",
     "test:e2e": "playwright test",
     "test": "pnpm test:unit",
-    "package": "pnpm build && electron-builder",
+    "bump:version": "node scripts/bump-version.mjs",
+    "package": "node scripts/bump-version.mjs && pnpm build && electron-builder",
+    "bundle:dsh": "node scripts/bundle-dsh.mjs",
     "prepare": "husky"
   },
   "lint-staged": {

@@ -2,6 +2,14 @@ appId: com.freecoder.app
 productName: FreeCoder
 copyright: Copyright © 2026 FreeCoder
 
+# 使用 node_modules 里已安装的 Electron 发行版打包，避免 electron-builder
+# 从 GitHub CDN 下载 electron zip（国内网络常 ETIMEDOUT）
+electronDist: node_modules/electron/dist
+
+# 应用自身无原生依赖（react/zustand/archiver 均为纯 JS），跳过 @electron/rebuild，
+# 避免其 fork 子进程并加速打包；若未来引入原生模块需移除此项
+npmRebuild: false
+
 directories:
   output: release
 
@@ -9,7 +17,8 @@ files:
   - dist/**/*
   - package.json
 
-# 应用图标（窗口/任务栏）、webview 检查器 preload 与后端运行时，打包后位于 resources/ 下
+# 应用图标（窗口/任务栏）、webview 检查器 preload、后端运行时与 DSH 运行时，
+# 打包后位于 resources/ 下
 extraResources:
   - from: resources/icons/icon.png
     to: icons/icon.png
@@ -17,13 +26,14 @@ extraResources:
     to: preview/inspector.js
   - from: resources/app-runtime
     to: app-runtime
-
-# DSH / Node 运行时内嵌（WP-08 集成后启用）
-# extraResources:
-#   - from: resources/node
-#     to: node
-#   - from: resources/dsh
-#     to: dsh
+  # DeepSeek Harness（dsh）CLI 运行时：先运行 `pnpm bundle:dsh`
+  # （scripts/bundle-dsh.mjs 从 DSH checkout 复制完整运行时），否则打包后 spawn dsh 会 ENOENT
+  - from: resources/dsh
+    to: dsh
+  # 内置 Node 运行时：dsh headless 依赖按 Node ABI 编译的原生模块（node-pty），
+  # 必须用真实 node.exe 运行（不能走 ELECTRON_RUN_AS_NODE）
+  - from: resources/node
+    to: node
 
 win:
   target:
@@ -37,7 +47,7 @@ nsis:
 
 mac:
   category: public.app-category.developer-tools
-  icon: resources/icons/icon.png   # electron-builder 自动转为 icns
+  icon: resources/icons/icon.png # electron-builder 自动转为 icns
   target:
     - dmg
     - zip

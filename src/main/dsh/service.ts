@@ -1,4 +1,8 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { DSHProcessManager, type DSHExitInfo } from './manager';
+import { DSHError } from './errors';
 import { sanitizeLog } from '../security/encryption';
 import type { LlmProviderKind } from '../../shared/types/settings';
 
@@ -6,11 +10,14 @@ import type { LlmProviderKind } from '../../shared/types/settings';
  * DSH 高层服务：面向 FreeCoder 业务的一次性任务执行。
  * 基于 `dsh --profile headless "task"` 模式（已验证：输出最终回复到 stdout 后退出）。
  * 多轮对话的会话保持策略在 WP-08 深入后于 WP-10 落地。
+ *
+ * 打包后的应用内置 dsh CLI（resources/dsh/）+ Node 运行时（resources/node/），
+ * 用内置 node.exe 运行 dsh，无需用户额外安装 dsh（scripts/bundle-dsh.mjs 生成）。
  */
 
 export interface DSHServiceOptions {
-  /** dsh 启动命令（默认 resolveDshCommand()） */
-  command?: string[];
+  /** dsh 启动命令（默认 resolveDshLaunch()：环境变量 → 内置运行时 → PATH） */
+  command?: string[] | DSHLaunch;
   /** DSH_HOME 覆盖 */
   dshHome?: string;
   /**
@@ -31,29 +38,150 @@ export interface DSHCredentials {
 export interface DSHResult {
   /** headless 最终回复（stdout 最后一条非空文本） */
   reply: string;
+  /** 模型推理过程（思考过程；headless runner 补丁后以信封输出，可能为空） */
+  reasoning?: string;
   /** 进程退出码（0=任务完成，1=未完成） */
   exitCode: number;
+}
+
+/** dsh 启动描述：argv 可为 [内置node.exe, bin.js, ...]（打包环境）或 [dsh]（PATH 环境） */
+export interface DSHLaunch {
+  /** 启动命令 argv */
+  argv: string[];
+  /** 附加环境变量（预留；内置运行时当前不需要额外变量） */
+  env?: NodeJS.ProcessEnv;
+  /** DSH_HOME 覆盖 */
+  dshHome?: string;
+}
+
+export type DSHLaunchSource = 'env' | 'bundled' | 'path' | 'custom' | 'missing';
+
+export interface DSHLaunchDescriptor extends DSHLaunch {
+  /** 命令来源，用于错误提示与健康检查 */
+  source: DSHLaunchSource;
+  /** 人类可读的说明 */
+  description: string;
+}
+
+/** Electron 主进程在打包后注入的路径（@types/node 未声明，此处显式标注） */
+type ElectronProcess = NodeJS.Process & { resourcesPath?: string };
+
+/**
+ * 应用资源目录。
+ * - 打包后：<app>/resources（process.resourcesPath）
+ * - 开发态/未打包：仓库 resources/（注意开发态 process.resourcesPath 指向 Electron 自身的
+ *   dist/resources，里面没有内置 dsh；且源码（jest: src/main/dsh）与打包输出（dist/main）的
+ *   __dirname 层级不同，故用候选路径探测）
+ */
+function getResourcesPath(): string {
+  const res = (process as ElectronProcess).resourcesPath ?? '';
+  if (res && fs.existsSync(path.join(res, 'dsh', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'))) {
+    return res;
+  }
+  const candidates = [
+    path.resolve(__dirname, '..', '..', 'resources'), // 打包输出 dist/main → 仓库根
+    path.resolve(__dirname, '..', '..', '..', 'resources'), // 源码 src/main/dsh → 仓库根
+  ];
+  for (const dev of candidates) {
+    if (fs.existsSync(path.join(dev, 'dsh'))) return dev;
+  }
+  return res;
+}
+
+/** 内置 dsh CLI 入口（打包后位于 <resources>/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js） */
+function bundledBinPath(): string {
+  const resourcesPath = getResourcesPath();
+  if (!resourcesPath) return '';
+  return path.join(resourcesPath, 'dsh', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
+}
+
+/** 内置 Node 运行时（打包后位于 <resources>/node/node.exe） */
+function bundledNodePath(): string {
+  const resourcesPath = getResourcesPath();
+  if (!resourcesPath) return '';
+  return path.join(resourcesPath, 'node', 'node.exe');
+}
+
+/** 在 PATH 中查找可执行文件（Windows 按 PATHEXT 常见扩展名搜索） */
+export function findOnPath(bin: string): string | null {
+  // Windows 上优先真实可执行扩展名（.cmd/.exe/.bat），避免命中无扩展名的 POSIX 脚本
+  // （如 pnpm 生成的 .bin/dsh，node spawn 无法直接执行导致 ENOENT）
+  const exts = process.platform === 'win32' ? ['.cmd', '.exe', '.bat', ''] : [''];
+  const dirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      const candidate = path.join(dir, `${bin}${ext}`);
+      try {
+        fs.accessSync(candidate);
+        return candidate;
+      } catch {
+        /* 继续搜索 */
+      }
+    }
+  }
+  return null;
 }
 
 /**
  * 解析 dsh 启动命令，优先级：
  * 1. FREECODER_DSH_COMMAND 环境变量（支持 JSON 数组，如 ["node","C:/.../bin.js"]；也兼容空格分隔）
- * 2. 默认 PATH 中的 dsh（POSIX / 已配置 PATH 的环境）
+ * 2. 应用内置运行时（scripts/bundle-dsh.mjs 生成 resources/dsh/ + resources/node/）。
+ *    headless 捆绑包会 import node-pty（按 Node ABI 预编译的原生模块），必须用内置
+ *    真实 node.exe 运行，不能走 ELECTRON_RUN_AS_NODE（Electron 的 ABI 不兼容）。
+ * 3. PATH 中的 dsh（开发环境）
+ * 4. 均不可用 → source='missing'，由调用方给出明确错误提示
  */
-export function resolveDshCommand(): string[] {
+export function resolveDshLaunch(): DSHLaunchDescriptor {
   const envCmd = process.env.FREECODER_DSH_COMMAND;
   if (envCmd?.trim()) {
     try {
       const parsed = JSON.parse(envCmd);
       if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {
-        return parsed as string[];
+        return {
+          argv: parsed as string[],
+          source: 'env',
+          description: 'FREECODER_DSH_COMMAND 自定义命令',
+        };
       }
     } catch {
       /* 不是 JSON，退化到空格分隔 */
     }
-    return envCmd.trim().split(/\s+/);
+    return {
+      argv: envCmd.trim().split(/\s+/),
+      source: 'env',
+      description: 'FREECODER_DSH_COMMAND 自定义命令',
+    };
   }
-  return ['dsh'];
+
+  const bundled = bundledBinPath();
+  const bundledNode = bundledNodePath();
+  if (bundled && bundledNode && fs.existsSync(bundled) && fs.existsSync(bundledNode)) {
+    return {
+      argv: [bundledNode, bundled],
+      source: 'bundled',
+      description: '应用内置 DeepSeek Harness（dsh）运行时',
+    };
+  }
+
+  const found = findOnPath('dsh');
+  if (found) {
+    return {
+      argv: [found],
+      source: 'path',
+      description: `PATH 中的 dsh（${found}）`,
+    };
+  }
+
+  return {
+    argv: ['dsh'],
+    source: 'missing',
+    description: '未找到 dsh 命令，也未检测到内置运行时',
+  };
+}
+
+/** 兼容旧接口：仅返回 argv（等价 resolveDshLaunch().argv） */
+export function resolveDshCommand(): string[] {
+  return resolveDshLaunch().argv;
 }
 
 /** 从 headless stdout 提取最终回复（最后一条非空文本行） */
@@ -65,7 +193,266 @@ export function extractLastReply(stdout: string): string {
   return lines[lines.length - 1] ?? '';
 }
 
-function waitForExit(manager: DSHProcessManager, timeoutMs = 300_000): Promise<DSHExitInfo> {
+/** 推理内容输出信封标记（与 headless runner 补丁约定；无补丁时输出不含信封） */
+const REASONING_START = '<<<FC_REASONING_START>>>';
+const REASONING_END = '<<<FC_REASONING_END>>>';
+/** 实时推理增量行前缀（headless runner 补丁逐条输出，JSON 编码） */
+const REASONING_STREAM = '<<<FC_REASONING_STREAM>>>';
+/** 实时工具调用行前缀（开发进度报告：写文件/跑命令/测试等） */
+const TOOL_CALL = '<<<FC_TOOL_CALL>>>';
+/** 实时工具执行结果行前缀（"开发团队怎么说"：已完成/测试通过等） */
+const TOOL_RESULT = '<<<FC_TOOL_RESULT>>>';
+
+/** 文本截断（友好错误提示限制长度，避免 user-visible message 过长） */
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n)}…` : s;
+}
+
+/** 检测 DSH 子进程把大模型 API 错误透传到 stdout 的几种已知形式。
+ *  返回 null 表示不是错误（当作正常回复）。
+ *  返回 `{code, message}` 时调用方应拋出 DSHError，message 为已翻译为中文的友好提示。
+ *
+ *  已知错误模式（生产中观测到的示例）：
+ *  1. dsh 内部 shell 标签："sh: RATE_LIMIT: 429 {\"type\":\"error\",...}"
+ *  2. 直接是 Anthropic 错误 JSON（无 sh: 前缀）
+ *  3. 裸 429 + rate_limit 关键字
+ */
+export function detectApiError(reply: string): { code: 'RATE_LIMIT'; message: string } | null {
+  const text = reply.trim();
+  if (!text) return null;
+
+  // 1. Anthropic / 通用大模型错误 JSON：{"type":"error","error":{"type":"...","message":"..."}}
+  //    message 可能含转义双引号，所以用 [\s\S]*? 非贪婪匹配
+  const jsonMatch = text.match(/\{\s*"type"\s*:\s*"error"[\s\S]*?"message"\s*:\s*"([\s\S]*?)"\s*[,}]/);
+  if (jsonMatch) {
+    // 还原常见 JSON 转义，让用户看到的是真实错误（而非 \"...\")
+    const raw = jsonMatch[1].replace(/\\"/g, '"').replace(/\\n/g, ' ');
+    return { code: 'RATE_LIMIT', message: friendlyApiMessage(raw, text) };
+  }
+
+  // 2. dsh 内部 shell 错误标签：sh: <LABEL>: <status> <body>
+  //    例：sh: RATE_LIMIT: 429 {...}
+  if (/^sh:\s*[A-Z_]+\s*:/i.test(text)) {
+    return { code: 'RATE_LIMIT', message: friendlyShellError(text) };
+  }
+
+  // 3. 退化匹配：文本中出现 RATE_LIMIT / 429 + rate limit 关键字组合
+  if (/\bRATE_LIMIT\b/i.test(text) || /\bHTTP\s*429\b|\bstatus[:\s]+429\b|\bcode[:\s]+429\b/i.test(text)) {
+    return { code: 'RATE_LIMIT', message: friendlyShellError(text) };
+  }
+
+  return null;
+}
+
+/** 把大模型 API 返回的错误文本翻译为对用户友好的中文（带截断后的原始信息便于排查） */
+export function friendlyApiMessage(raw: string, full: string): string {
+  const tip = '请稍后再试，或在右上角「⚙ 设置」中更换 API Key / 模型套餐。';
+  if (/rate.?limit|quota|额度|用量|套餐/i.test(raw)) {
+    return `大模型 API 触发了速率/额度限制（${truncate(raw, 120)}）。${tip}`;
+  }
+  if (/overloaded|too\s*many|busy/i.test(raw)) {
+    return `大模型 API 服务繁忙（${truncate(raw, 120)}）。请稍后再试。`;
+  }
+  if (/auth|invalid.*key|api[_-\s]*key|unauthorized|forbidden|\b401\b|\b403\b/i.test(raw)) {
+    return `大模型 API Key 无效或已过期（${truncate(raw, 120)}）。请在「⚙ 设置」中检查 API Key。`;
+  }
+  return `大模型 API 返回了错误：${truncate(full, 200)}`;
+}
+
+/** 把 dsh 内部 shell 错误标签（如 sh: RATE_LIMIT: 429 ...）翻译为友好中文 */
+export function friendlyShellError(text: string): string {
+  const labelMatch = text.match(/^sh:\s*([A-Z_]+)\s*:\s*(\d{3})?\s*([\s\S]*)$/i);
+  const label = labelMatch?.[1]?.toUpperCase();
+  const status = labelMatch?.[2];
+  const body = labelMatch?.[3] ?? text;
+  const hintBody = truncate(body.trim(), 160);
+
+  if (label === 'RATE_LIMIT') {
+    return `大模型 API 触发了速率/额度限制（HTTP ${status ?? '429'}${hintBody ? `：${hintBody}` : ''}）。请稍后再试，或在「⚙ 设置」中更换 API Key / 模型套餐。`;
+  }
+  return `运行过程中出现了问题：${truncate(text, 200)}`;
+}
+
+/** 实时进度更新：推理片段 / 工具调用 / 工具执行结果（开发进度报告与"开发团队怎么说"） */
+export interface DSHProgressUpdate {
+  kind: 'reasoning' | 'tool' | 'tool-result';
+  /** reasoning：文本片段；tool：{name, arguments} 的 JSON 字符串；tool-result：结果文本 */
+  text: string;
+}
+
+/** 从输出片段中提取实时进度更新。
+ *  1) 先扫 headless runner 补丁写的 `<<<FC_*>>>` marker（保持兼容）
+ *  2) 再兜底扫每行独立 JSON：识别模型工具调用结构（即便 dsh 上游没打补丁也能用）
+ *     - 严格模式：必须含 name 字符串字段 + 已知工具名 + arguments 字段，或
+ *       命中 Anthropic `type:'tool_use'` / OpenAI `function.name` 这两种通用形态
+ *     - 跳过以 `<<<FC_` 开头的行（避免与上面 prefix 扫描重复）
+ *     - 跳过不以 `{`/`[` 开头 或不以 `}`/`]` 结尾的行（避免误识别嵌入文本）
+ */
+export function extractProgressUpdates(chunk: string): DSHProgressUpdate[] {
+  const updates: DSHProgressUpdate[] = [];
+  const markers: { prefix: string; kind: DSHProgressUpdate['kind'] }[] = [
+    { prefix: REASONING_STREAM, kind: 'reasoning' },
+    { prefix: TOOL_CALL, kind: 'tool' },
+    { prefix: TOOL_RESULT, kind: 'tool-result' },
+  ];
+  for (const { prefix, kind } of markers) {
+    let idx = 0;
+    while (idx < chunk.length) {
+      const start = chunk.indexOf(prefix, idx);
+      if (start < 0) break;
+      const lineEnd = chunk.indexOf('\n', start);
+      const payload =
+        lineEnd < 0
+          ? chunk.slice(start + prefix.length)
+          : chunk.slice(start + prefix.length, lineEnd);
+      try {
+        const parsed = JSON.parse(payload) as unknown;
+        if (typeof parsed === 'string' && parsed) updates.push({ kind, text: parsed });
+        else if (parsed && typeof parsed === 'object') {
+          updates.push({ kind, text: JSON.stringify(parsed) });
+        }
+      } catch {
+        /* 片段被截断或非 JSON：忽略，等待下一条 */
+      }
+      idx = lineEnd < 0 ? chunk.length : lineEnd + 1;
+    }
+  }
+  // 兜底：单行 JSON 工具调用识别（适配 dsh 上游未打补丁的场景）
+  updates.push(...extractJsonLineToolCalls(chunk));
+  return updates;
+}
+
+/** 已知工具调用名集合（大小写不敏感，子串匹配）。
+ *  toolProgressLabel(dev/developer.ts) 也是按这些子串分类显示 📝/🛠/🧪 等图标，
+ *  这里保持一致的判定，避免识别为 tool 后却无法渲染为开发进度报告。
+ *  保守起见只识别文件/命令/测试类工具——通用聊天场景里这些词出现概率低，误识别风险小。
+ */
+const KNOWN_TOOL_NAME_TOKENS = [
+  'write', 'create_file', 'edit', 'replace', 'patch', 'delete',
+  'read', 'view', 'ls', 'glob', 'grep', 'search',
+  'bash', 'shell', 'exec', 'run_command',
+  'npm_test', 'pytest', 'jest',
+  'mkdir', 'touch',
+];
+
+/** 单行 JSON 兜底识别：扫描每行独立 JSON；命中工具调用结构则推送 tool update。
+ *  仅识别 `tool` 类型——`tool-result` 的结构太发散（模型可能输出各种成功/失败消息），
+ *  误识别代价大于收益，留给 FC_* marker 路径。
+ */
+export function extractJsonLineToolCalls(chunk: string): DSHProgressUpdate[] {
+  const updates: DSHProgressUpdate[] = [];
+  for (const line of chunk.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith('<<<FC_')) continue; // 已被 prefix 扫描处理
+    // 预检：必须以 { 或 [ 开头、以 } 或 ] 结尾（独立完整 JSON 行）
+    if (!/^[\[{]/.test(trimmed)) continue;
+    if (!/[\]}]\s*$/.test(trimmed)) continue;
+    // 预检：必须含 "name" 字段（避免每行 JSON.parse 浪费 CPU）
+    if (!(/["']name["']/.test(trimmed))) continue;
+
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      const candidate = normalizeToolCall(parsed);
+      if (candidate) {
+        updates.push({ kind: 'tool', text: JSON.stringify(candidate) });
+      }
+    } catch {
+      /* 非 JSON 或结构不对：忽略 */
+    }
+  }
+  return updates;
+}
+
+/** 把解析后的 JSON 归一化为 `{name, arguments}` 形态（dev/developer.ts toolProgressLabel 期望的结构）。
+ *  命中以下三种协议之一才返回：
+ *  A. FreeCoder / 通用：{ name: 'write_file', arguments: '...' | {...} }
+ *  B. Anthropic tool_use：{ type: 'tool_use', name: '...', input: {...} }
+ *  C. OpenAI function call：{ function: { name: '...', arguments: '...' | {...} } }
+ *  工具名必须是已知集合（KNOWN_TOOL_NAME_TOKENS）以避免误识别模型回复里的纯数据 JSON。
+ */
+function normalizeToolCall(parsed: unknown): { name: string; arguments: string } | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const obj = parsed as Record<string, unknown>;
+
+  // 形态 A：FreeCoder / 通用协议
+  if (typeof obj.name === 'string' && obj.arguments !== undefined) {
+    const name = obj.name.toLowerCase();
+    if (isKnownToolName(name)) {
+      return {
+        name: obj.name,
+        arguments: typeof obj.arguments === 'string' ? obj.arguments : JSON.stringify(obj.arguments),
+      };
+    }
+  }
+
+  // 形态 B：Anthropic tool_use
+  if (obj.type === 'tool_use' && typeof obj.name === 'string') {
+    const name = obj.name.toLowerCase();
+    if (isKnownToolName(name)) {
+      return {
+        name: obj.name,
+        arguments: typeof obj.input === 'string' ? obj.input : JSON.stringify(obj.input ?? {}),
+      };
+    }
+  }
+
+  // 形态 C：OpenAI function call（嵌套在 function 字段下）
+  if (obj.function && typeof obj.function === 'object') {
+    const fn = obj.function as Record<string, unknown>;
+    if (typeof fn.name === 'string' && fn.arguments !== undefined) {
+      const name = fn.name.toLowerCase();
+      if (isKnownToolName(name)) {
+        return {
+          name: fn.name,
+          arguments: typeof fn.arguments === 'string' ? fn.arguments : JSON.stringify(fn.arguments),
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+/** 子串匹配（大小写不敏感）：与 dev/developer.ts toolProgressLabel 保持一致判定 */
+function isKnownToolName(name: string): boolean {
+  for (const token of KNOWN_TOOL_NAME_TOKENS) {
+    if (name.includes(token)) return true;
+  }
+  return false;
+}
+
+/**
+ * 解析 headless stdout：拆出推理过程与最终回复。
+ * 带补丁的 runner 输出 `<推理流行*><<<FC_REASONING_START>>>\n<推理>\n<<<FC_REASONING_END>>>\n<完整回复>`
+ * - 推理 = 信封内文本
+ * - 回复 = 剔除信封与推理流标记行后的完整文本（**保留多行**，不能用 extractLastReply 只取最后一行）
+ * 无信封时退回原逻辑（回复=最后一条非空行，推理为空）。
+ */
+export function parseDshOutput(stdout: string): { reply: string; reasoning?: string } {
+  const startIdx = stdout.indexOf(REASONING_START);
+  const endIdx = stdout.indexOf(REASONING_END);
+  if (startIdx >= 0 && endIdx > startIdx) {
+    const reasoning = stdout.slice(startIdx + REASONING_START.length, endIdx).trim();
+    // 整体切除信封区段（START 标记 → END 标记，含推理文本），再剔除推理流标记行，
+    // 剩余部分即完整回复（可能多行）
+    const clean = (stdout.slice(0, startIdx) + stdout.slice(endIdx + REASONING_END.length))
+      .split(/\r?\n/)
+      .filter((line) => !line.includes(REASONING_STREAM))
+      .join('\n')
+      .trim();
+    return { reply: clean || extractLastReply(stdout), reasoning: reasoning || undefined };
+  }
+  return { reply: extractLastReply(stdout) };
+}
+
+/**
+ * DSH 任务执行超时。deepseek-v4-flash 为推理模型，复杂代理任务（多次工具调用）
+ * 实测可达 10~20 分钟（见 ~/.dsh/storages 会话统计），5 分钟会误杀长任务，给足 30 分钟。
+ */
+const DSH_TASK_TIMEOUT_MS = 30 * 60 * 1000;
+
+function waitForExit(manager: DSHProcessManager, timeoutMs = DSH_TASK_TIMEOUT_MS): Promise<DSHExitInfo> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       manager.stop().catch(() => undefined);
@@ -75,23 +462,111 @@ function waitForExit(manager: DSHProcessManager, timeoutMs = 300_000): Promise<D
       clearTimeout(timer);
       resolve(info);
     });
+    // spawn 失败（如命令不存在）：manager 会先 emit 'error' 再 emit 'exit'，
+    // 这里监听 'error' 立即失败，避免调用方长时间挂起
+    manager.once('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
   });
+}
+
+/** DSH 任务诊断日志（~/.freecoder/logs/dsh-task.log）：记录任务输出尾部与退出码，排查卡住/超时 */
+function appendTaskLog(projectDir: string, task: string, output: string, exitCode: number | null): void {
+  try {
+    const logDir = path.join(os.homedir(), '.freecoder', 'logs');
+    fs.mkdirSync(logDir, { recursive: true });
+    const tail = output.slice(-2000);
+    fs.appendFileSync(
+      path.join(logDir, 'dsh-task.log'),
+      [
+        `[${new Date().toISOString()}] cwd=${projectDir}`,
+        `task=${task.slice(0, 200)}`,
+        `exit=${exitCode ?? -1} outputChars=${output.length}`,
+        `outputTail:\n${tail}`,
+        '-'.repeat(60),
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+  } catch {
+    /* 日志失败不影响业务 */
+  }
+}
+
+/** 将 DSHServiceOptions.command 归一化为启动描述 */
+function toLaunch(command: string[] | DSHLaunch | undefined): DSHLaunchDescriptor {
+  if (Array.isArray(command)) {
+    return { argv: command, source: 'custom', description: '自定义命令' };
+  }
+  if (command && Array.isArray(command.argv) && command.argv.length > 0) {
+    return {
+      ...command,
+      source: 'custom',
+      description: '自定义命令',
+    };
+  }
+  return resolveDshLaunch();
 }
 
 /** DSH 一次性任务服务：每个任务启动 headless 进程，返回最终回复 */
 export class DSHService {
-  private readonly command: string[];
+  private readonly launch: DSHLaunchDescriptor;
   private readonly dshHome?: string;
   private readonly apiKeyProvider?: () => Promise<DSHCredentials | null>;
 
   constructor(options: DSHServiceOptions = {}) {
-    this.command = options.command ?? resolveDshCommand();
+    this.launch = toLaunch(options.command);
     this.dshHome = options.dshHome;
     this.apiKeyProvider = options.apiKeyProvider;
   }
 
   getCommand(): string[] {
-    return this.command;
+    return this.launch.argv;
+  }
+
+  getLaunch(): DSHLaunchDescriptor {
+    return this.launch;
+  }
+
+  /** dsh 运行时是否可用（打包前/开发环境据此展示提示） */
+  private launchAvailable(): boolean {
+    const l = this.launch;
+    if (l.source === 'bundled') {
+      return !!l.argv[0] && !!l.argv[1] && fs.existsSync(l.argv[0]) && fs.existsSync(l.argv[1]);
+    }
+    if (l.source === 'path') return !!l.argv[0] && fs.existsSync(l.argv[0]);
+    return true; // env / custom 由用户显式指定，视为可用
+  }
+
+  /** 健康检查：dsh 运行时是否就绪（用于 app:info 状态提示） */
+  checkHealth(): { available: boolean; message: string } {
+    const l = this.launch;
+    switch (l.source) {
+      case 'env':
+      case 'custom':
+        return { available: true, message: l.description };
+      case 'bundled': {
+        const ok =
+          !!l.argv[0] && !!l.argv[1] && fs.existsSync(l.argv[0]) && fs.existsSync(l.argv[1]);
+        return {
+          available: ok,
+          message: ok ? '已内置 DeepSeek Harness（dsh）运行时' : '内置 dsh 运行时文件缺失',
+        };
+      }
+      case 'path': {
+        const ok = !!l.argv[0] && fs.existsSync(l.argv[0]);
+        return {
+          available: ok,
+          message: ok ? `PATH 中的 dsh（${l.argv[0]}）` : 'PATH 中的 dsh 已不可用',
+        };
+      }
+      default:
+        return {
+          available: false,
+          message: '未检测到 DeepSeek Harness（dsh）运行时',
+        };
+    }
   }
 
   /** 按提供商构造子进程环境变量（对应 DSH provider 的 apiKeyEnv 字段） */
@@ -106,28 +581,117 @@ export class DSHService {
     return { DEEPSEEK_API_KEY: creds.apiKey };
   }
 
-  /** 运行一次性 headless 任务（projectDir 作为 DSH workspace） */
-  async runTask(projectDir: string, task: string): Promise<DSHResult> {
-    // 注入本地加密存储的 API Key（按 provider 选择 env 变量名）
+  /**
+   * 运行一次性 headless 任务（projectDir 作为 DSH workspace）。
+   * @param onProgress 实时进度更新（推理片段 reasoning / 工具调用 tool，开发进度报告）
+   * @param signal 取消信号：abort 时杀掉子进程并抛 TASK_CANCELLED（用于用户插话调整/停止）
+   */
+  async runTask(
+    projectDir: string,
+    task: string,
+    onProgress?: (update: DSHProgressUpdate) => void,
+    signal?: AbortSignal,
+  ): Promise<DSHResult> {
+    // 1. API Key 检查：未接入大模型 API 时无法工作，抛业务错误（渲染层据此弹窗引导接入）
     const creds = this.apiKeyProvider ? await this.apiKeyProvider() : null;
+    if (!creds?.apiKey) {
+      throw new DSHError(
+        'API_KEY_MISSING',
+        '尚未配置大模型 API Key。请点击右上角「配置 API Key」完成接入后，再开始对话。',
+      );
+    }
+
+    // 2. dsh 运行时检查：避免 spawn ENOENT 这类硬错误
+    if (this.launch.source === 'missing' || !this.launchAvailable()) {
+      throw new DSHError(
+        'DSH_START_FAILED',
+        `无法启动 DeepSeek Harness（dsh）：${this.launch.description}。请安装 dsh 或设置 FREECODER_DSH_COMMAND 环境变量后重试。`,
+      );
+    }
+
+    // 3. 注入本地加密存储的 API Key（按 provider 选择 env 变量名）
     const manager = new DSHProcessManager({
-      command: [...this.command, '--profile', 'headless', task],
-      dshHome: this.dshHome,
+      command: [...this.launch.argv, '--profile', 'headless', task],
+      dshHome: this.launch.dshHome ?? this.dshHome,
       cwd: projectDir,
       autoRestart: false,
-      env: this.buildEnv(creds),
+      env: { ...this.launch.env, ...this.buildEnv(creds) },
     });
 
     let output = '';
     manager.on('output', (o) => {
       output += o.data;
+      // 实时进度更新：推理增量 + 工具调用（开发进度报告）逐条转发给调用方
+      if (onProgress) {
+        for (const update of extractProgressUpdates(o.data)) onProgress(update);
+      }
     });
 
+    // 取消支持：abort 时杀掉子进程；runTask 会以 TASK_CANCELLED 结束
+    let cancelled = false;
+    const onAbort = () => {
+      cancelled = true;
+      manager.stop().catch(() => undefined);
+    };
+    if (signal) {
+      if (signal.aborted) {
+        // 尚未启动即被取消：直接结束，不 spawn 子进程
+        throw new DSHError('TASK_CANCELLED', '任务已被中断');
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    // 【关键】启动子进程。此前缺失 start() 导致进程从未 spawn、任务永远卡在等待退出。
     manager.start();
-    const exit = await waitForExit(manager);
+
+    let exit: DSHExitInfo;
+    try {
+      exit = await waitForExit(manager);
+    } catch (error) {
+      if (cancelled || signal?.aborted) {
+        throw new DSHError('TASK_CANCELLED', '任务已被中断');
+      }
+      // 诊断：记录失败任务的输出（脱敏后由 appendTaskLog 落盘）
+      try {
+        const safeOut = creds ? output.split(creds.apiKey).join('[API_KEY_REDACTED]') : output;
+        appendTaskLog(projectDir, task, sanitizeLog(safeOut), null);
+      } catch {
+        /* 日志失败不影响业务 */
+      }
+      if (error instanceof DSHError) throw error;
+      const reason = error instanceof Error ? error.message : String(error);
+      if (reason.includes('超时')) {
+        throw new DSHError('DSH_TIMEOUT', `DSH 任务执行超时：${reason}`);
+      }
+      if (/ENOENT|spawn/i.test(reason)) {
+        throw new DSHError('DSH_START_FAILED', `无法启动 DeepSeek Harness（dsh）运行时：${reason}`);
+      }
+      throw new DSHError('DSH_START_FAILED', `DSH 任务执行失败：${reason}`);
+    }
+    if (cancelled || signal?.aborted) {
+      throw new DSHError('TASK_CANCELLED', '任务已被中断');
+    }
+
+    // 诊断：记录成功任务的输出尾部（脱敏后落盘，便于排查“卡住”类问题）
+    try {
+      const safeOut = creds ? output.split(creds.apiKey).join('[API_KEY_REDACTED]') : output;
+      appendTaskLog(projectDir, task, sanitizeLog(safeOut), exit.code ?? -1);
+    } catch {
+      /* 日志失败不影响业务 */
+    }
+
     // 防御：若子进程输出回显了 key（如错误信息），脱敏后再返回，避免明文进入 UI 与聊天记录
-    const raw = extractLastReply(output);
-    const reply = creds ? raw.split(creds.apiKey).join('[API_KEY_REDACTED]') : raw;
-    return { reply: sanitizeLog(reply), exitCode: exit.code ?? -1 };
+    const parsed = parseDshOutput(output);
+    // 噪音过滤：DSH 偶发把大模型 API 错误（rate_limit / 认证失败 / 服务繁忙等）透传到 stdout，
+    // 这些信息不该当作“AI 回复”显示给用户。识别后拋出友好错误，走 IPC 错误路径
+    // （系统消息）展示，避免污染聊天历史。
+    const apiErr = detectApiError(parsed.reply);
+    if (apiErr) {
+      throw new DSHError(apiErr.code, apiErr.message);
+    }
+    const redact = (s: string) => (creds ? s.split(creds.apiKey).join('[API_KEY_REDACTED]') : s);
+    const reply = sanitizeLog(redact(parsed.reply));
+    const reasoning = parsed.reasoning ? sanitizeLog(redact(parsed.reasoning)) : undefined;
+    return { reply, reasoning, exitCode: exit.code ?? -1 };
   }
 }

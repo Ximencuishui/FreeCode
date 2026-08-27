@@ -1,5 +1,6 @@
 import { ipcMain, type IpcMainInvokeEvent } from 'electron';
 import type { ErrorCode, FreeCoderError } from '../../shared/types/ipc';
+import { DSHError } from '../dsh/errors';
 
 /** 业务异常：携带统一错误码 */
 export class IpcError extends Error {
@@ -15,6 +16,13 @@ export class IpcError extends Error {
 
 function toErrorResponse(err: unknown): { success: false; error: FreeCoderError } {
   if (err instanceof IpcError) {
+    return {
+      success: false,
+      error: { code: err.code, message: err.message, details: err.details },
+    };
+  }
+  // DSH 领域错误（API Key 缺失 / dsh 运行时缺失 / 超时）映射为统一错误码
+  if (err instanceof DSHError) {
     return {
       success: false,
       error: { code: err.code, message: err.message, details: err.details },

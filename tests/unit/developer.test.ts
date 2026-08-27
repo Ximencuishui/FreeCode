@@ -1,4 +1,5 @@
 import { Developer } from '../../src/main/dev/developer';
+import * as runtimeModule from '../../src/main/dev/runtime';
 import type { StorageManager, ProjectMeta, Requirements, ChatMessage } from '../../src/main/storage/types';
 
 /** 内存版 StorageManager 测试桩 */
@@ -64,6 +65,9 @@ class FakeStorage implements StorageManager {
   }
   getProjectCodePath(projectId: string): string {
     return `/fake/projects/${projectId}/code`;
+  }
+  getDefaultProjectsDir(): string {
+    return '/fake/projects';
   }
   async ensureProjectDirectories(): Promise<void> {}
 }
@@ -156,5 +160,62 @@ describe('开发执行器（Developer）', () => {
     expect(task).toContain('记录收支');
     expect(task).toContain('只开发 V1');
     expect(task).not.toContain('分类统计');
+  });
+
+  it('本地模式（authentication=none）：不调用 injectAuthRuntime，开发任务用 localStorage', async () => {
+    const storage = new FakeStorage();
+    const meta = await storage.createProject('本地记账本');
+    await storage.saveRequirements(meta.id, {
+      ...makeRequirements(meta.id),
+      authentication: 'none',
+    });
+
+    // spy 注入函数；本地模式不应被调用
+    const spy = jest.spyOn(runtimeModule, 'injectAuthRuntime').mockResolvedValue();
+
+    const dsh = {
+      runTask: jest.fn(async () => ({ reply: '已完成开发', exitCode: 0 })),
+    };
+    const developer = new Developer({ storage, dsh });
+
+    const outcome = await new Promise<{ success: boolean; message: string }>((resolve) =>
+      developer.startDevelopment(meta.id, resolve),
+    );
+
+    expect(outcome.success).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+    // 本地模式：开发任务包含 localStorage + 不出现登录模式专属的 SDK 调用
+    const localTask = dsh.runTask.mock.calls[0][1] as string;
+    expect(localTask).toContain('localStorage');
+    expect(localTask).not.toContain('FreeCoderAuth.init');
+    expect(localTask).not.toContain('FreeCoderAuth.requireLogin');
+    expect(localTask).not.toContain('FreeCoderAuth.data');
+    expect(localTask).not.toContain('请按以下方式集成');
+
+    spy.mockRestore();
+  });
+
+  it('登录模式（authentication=password）：调用 injectAuthRuntime 一次', async () => {
+    const storage = new FakeStorage();
+    const meta = await storage.createProject('账号密码应用');
+    await storage.saveRequirements(meta.id, {
+      ...makeRequirements(meta.id),
+      authentication: 'password',
+    });
+
+    const spy = jest.spyOn(runtimeModule, 'injectAuthRuntime').mockResolvedValue();
+
+    const dsh = {
+      runTask: jest.fn(async () => ({ reply: '已完成开发', exitCode: 0 })),
+    };
+    const developer = new Developer({ storage, dsh });
+
+    await new Promise<void>((resolve) =>
+      developer.startDevelopment(meta.id, () => resolve()),
+    );
+
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    spy.mockRestore();
   });
 });

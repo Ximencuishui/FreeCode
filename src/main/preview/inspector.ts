@@ -55,6 +55,15 @@ export function describeElement(element: ElementInfo): ElementSelectResult['elem
       { label: '修改颜色', action: 'change-color' },
       { label: '调整大小', action: 'change-size' },
       { label: '编辑文字', action: 'edit-text' },
+      { label: '调整间距', action: 'change-spacing' },
+      { label: '文字对齐', action: 'text-align' },
+      { label: '字体加粗', action: 'font-weight' },
+      { label: '圆角样式', action: 'border-radius' },
+      { label: '背景色', action: 'change-bg' },
+      { label: '边框粗细', action: 'border-width' },
+      { label: '透明度', action: 'opacity' },
+      { label: '阴影效果', action: 'shadow' },
+      { label: '行高', action: 'line-height' },
     ],
   };
 }

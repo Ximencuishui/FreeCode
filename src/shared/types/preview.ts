@@ -72,3 +72,9 @@ export interface ElementSelectResult {
 export interface PreviewRefreshResult {
   success: boolean;
 }
+
+export interface PreviewOpenExternalResult {
+  success: boolean;
+  /** 当前预览地址（供 AI 引导文案使用） */
+  url?: string;
+}

@@ -17,6 +17,7 @@ function subscribe<T>(channel: string, callback: (data: T) => void): () => void 
 const electronApi: Window['electron'] = {
   chat: {
     send: (params) => ipcRenderer.invoke(IpcChannels.chatSend, params),
+    stop: (params) => ipcRenderer.invoke(IpcChannels.chatStop, params),
     onResponse: (callback) => subscribe(IpcChannels.chatResponse, callback),
     onSignal: (callback) => subscribe(IpcChannels.chatSignal, callback),
     getHistory: (params) => ipcRenderer.invoke(IpcChannels.chatHistory, params),
@@ -25,6 +26,7 @@ const electronApi: Window['electron'] = {
     start: (params) => ipcRenderer.invoke(IpcChannels.previewStart, params),
     stop: () => ipcRenderer.invoke(IpcChannels.previewStop),
     refresh: () => ipcRenderer.invoke(IpcChannels.previewRefresh),
+    openExternal: () => ipcRenderer.invoke(IpcChannels.previewOpenExternal),
     onStatus: (callback) => subscribe(IpcChannels.previewStatus, callback),
     selectElement: (params) => ipcRenderer.invoke(IpcChannels.previewElement, params),
   },
@@ -36,6 +38,13 @@ const electronApi: Window['electron'] = {
     confirm: (params) => ipcRenderer.invoke(IpcChannels.projectConfirm, params),
     confirmPlan: (params) => ipcRenderer.invoke(IpcChannels.projectConfirmPlan, params),
     selectLocation: () => ipcRenderer.invoke(IpcChannels.projectSelectLocation),
+    updateRequirements: (params) =>
+      ipcRenderer.invoke(IpcChannels.projectUpdateRequirements, params),
+    resumeDevelopment: (params) =>
+      ipcRenderer.invoke(IpcChannels.projectResumeDevelopment, params),
+    autoTest: (params) => ipcRenderer.invoke(IpcChannels.projectAutoTest, params),
+    convertToLocalMode: (params) =>
+      ipcRenderer.invoke(IpcChannels.projectConvertToLocalMode, params),
   },
   export: {
     start: (params) => ipcRenderer.invoke(IpcChannels.exportStart, params),
@@ -51,6 +60,7 @@ const electronApi: Window['electron'] = {
   apikey: {
     save: (params) => ipcRenderer.invoke(IpcChannels.apiKeySave, params),
     validate: (params) => ipcRenderer.invoke(IpcChannels.apiKeyValidate, params),
+    test: (params) => ipcRenderer.invoke(IpcChannels.apiKeyTest, params),
   },
   app: {
     getInfo: () => ipcRenderer.invoke(IpcChannels.appInfo),

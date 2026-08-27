@@ -18,9 +18,9 @@ export function registerIpcHandlers(
   developer: Developer,
   planner: VersionPlanner,
 ): void {
-  registerAppIpc();
+  registerAppIpc(dsh);
   registerChatIpc(storage, dsh);
-  registerProjectIpc(storage, developer, planner);
+  registerProjectIpc(storage, dsh, developer, planner);
   registerPreviewIpc(storage);
   registerExportIpc(storage);
   registerSettingsIpc(storage);

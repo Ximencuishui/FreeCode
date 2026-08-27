@@ -20,8 +20,8 @@ const DEFAULT_BASE_URLS: Record<LlmProviderKind, string> = {
 };
 
 const DEFAULT_MODELS: Record<LlmProviderKind, string> = {
-  deepseek: 'deepseek-chat',
-  'openai-compatible': 'deepseek-chat',
+  deepseek: 'deepseek-v4-flash',
+  'openai-compatible': 'deepseek-v4-flash',
 };
 
 interface ApiKeyModalProps {
@@ -30,6 +30,8 @@ interface ApiKeyModalProps {
   initialProvider?: LlmProviderKind;
   initialBaseUrl?: string;
   initialModel?: string;
+  /** 已配置 Key 的脱敏展示（sk-****abcd）；存在表示已接入过大模型 */
+  initialApiKeyMasked?: string;
 }
 
 export default function ApiKeyModal({
@@ -37,6 +39,7 @@ export default function ApiKeyModal({
   initialProvider,
   initialBaseUrl,
   initialModel,
+  initialApiKeyMasked,
 }: ApiKeyModalProps) {
   const open = useUiStore((s) => s.settingsOpen);
   const inviteMode = useUiStore((s) => s.inviteMode);
@@ -54,6 +57,8 @@ export default function ApiKeyModal({
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [wasInvite, setWasInvite] = useState(inviteMode);
   const inputRef = useRef<HTMLInputElement>(null);
   const closeTimerRef = useRef<number | null>(null);
@@ -73,7 +78,10 @@ export default function ApiKeyModal({
     setError('');
     setSaving(false);
     setSaved(false);
-    setShowAdvanced(false);
+    setTesting(false);
+    setTestMsg(null);
+    // 已配置过大模型时默认展开高级选项，直接展示当前 Base URL / 模型
+    setShowAdvanced(Boolean(initialApiKeyMasked));
     setWasInvite(inviteMode);
     // 弹窗打开后聚焦输入框
     const timer = window.setTimeout(() => inputRef.current?.focus(), 60);
@@ -103,6 +111,8 @@ export default function ApiKeyModal({
     setBaseUrl(DEFAULT_BASE_URLS[next]);
     setModel(DEFAULT_MODELS[next]);
     setError('');
+    setTestMsg(null);
+    setTesting(false);
   };
 
   /** 从 IPC 结果中提取可展示的错误文案（error 可能是 FreeCoderError 对象） */
@@ -114,21 +124,46 @@ export default function ApiKeyModal({
   };
 
   const handleSave = async () => {
-    if (saving || saved) return;
+    if (saving || saved || testing) return;
     const key = apiKey.trim();
-    if (!key) {
+    const hasExisting = Boolean(initialApiKeyMasked);
+    if (!key && !hasExisting) {
       setError('请输入 API Key');
       return;
     }
+    const params = { key, provider, baseUrl: baseUrl.trim(), model: model.trim() };
+
+    // 1. 输入了新 Key：非首启模式先做真实连接测试（调端点 /models 校验，通过后才允许保存）
+    //    首启模式（wasInvite）跳过连接测试，让用户直接保存进入主流程（测试场景/试用场景友好）
+    if (key && !wasInvite) {
+      setTesting(true);
+      setError('');
+      setTestMsg(null);
+      try {
+        const test = await window.electron.apikey.test(params);
+        if (!test.success) {
+          setError(test.message || '连接测试失败：API Key 无效或网络不可达');
+          setTesting(false);
+          return;
+        }
+        const latency = typeof test.latencyMs === 'number' ? `（${test.latencyMs}ms）` : '';
+        const modelCount =
+          Array.isArray(test.models) && test.models.length > 0
+            ? `，可用模型 ${test.models.length} 个`
+            : '';
+        setTestMsg({ ok: true, text: `✓ 连接成功${latency}${modelCount}` });
+      } catch {
+        setError('连接测试失败，请重试');
+        setTesting(false);
+        return;
+      }
+      setTesting(false);
+    }
+
+    // 2. 保存：有新 Key 则更新 Key；未输入新 Key 则仅保存提供商/Base URL/模型（主进程保留原 Key）
     setSaving(true);
-    setError('');
     try {
-      const result = await window.electron.apikey.save({
-        key,
-        provider,
-        baseUrl: baseUrl.trim(),
-        model: model.trim(),
-      });
+      const result = await window.electron.apikey.save(params);
       if (result.success) {
         setSaved(true);
         setApiKeyConfigured(true);
@@ -230,7 +265,7 @@ export default function ApiKeyModal({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void handleSave();
               }}
-              placeholder={provider === 'deepseek' ? 'sk-…' : '粘贴你的 API Key'}
+              placeholder={initialApiKeyMasked ? '输入新 Key 可更换（留空则保留原 Key）' : provider === 'deepseek' ? 'sk-…' : '粘贴你的 API Key'}
               spellCheck={false}
               autoComplete="off"
               className="w-full rounded-lg border border-slate-300 px-3 py-2 pr-16 text-sm outline-none transition-colors focus:border-brand"
@@ -244,6 +279,19 @@ export default function ApiKeyModal({
               {showKey ? '隐藏' : '显示'}
             </button>
           </div>
+          {/* 已配置 Key 的脱敏展示（输入新 Key 时自动隐藏） */}
+          {initialApiKeyMasked && !apiKey && (
+            <div className="mt-2 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+              <span className="flex-1 truncate">已配置：{initialApiKeyMasked}</span>
+              <button
+                type="button"
+                onClick={() => inputRef.current?.focus()}
+                className="shrink-0 font-medium text-emerald-600 underline decoration-emerald-300 transition-colors hover:text-emerald-700"
+              >
+                更换
+              </button>
+            </div>
+          )}
           <button
             type="button"
             onClick={openKeyPage}
@@ -290,17 +338,36 @@ export default function ApiKeyModal({
             </div>
           )}
 
+          {testMsg && (
+            <p className={`mt-3 text-xs ${testMsg.ok ? 'text-emerald-600' : 'text-red-500'}`}>
+              {testMsg.text}
+            </p>
+          )}
           {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
-          {saved && <p className="mt-3 text-xs text-emerald-600">✓ API Key 已保存，即将开始…</p>}
+          {saved && (
+            <p className="mt-3 text-xs text-emerald-600">
+              {apiKey.trim() ? '✓ API Key 已保存，即将开始…' : '✓ 设置已保存'}
+            </p>
+          )}
 
           <div className="mt-5 flex items-center gap-2">
             <button
               type="button"
-              disabled={saving || saved}
+              disabled={saving || saved || testing}
               onClick={() => void handleSave()}
               className="flex-1 rounded-lg bg-brand py-2.5 text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {saving ? '保存中…' : saved ? '已保存 ✓' : '保存并开始'}
+              {testing
+                ? '正在测试连接…'
+                : saving
+                  ? '保存中…'
+                  : saved
+                    ? '已保存 ✓'
+                    : wasInvite && apiKey.trim()
+                      ? '保存并开始'
+                      : apiKey.trim()
+                        ? '测试连接并保存'
+                        : '保存设置'}
             </button>
             <button
               type="button"

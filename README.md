@@ -27,6 +27,14 @@ pnpm lint           # 代码规范检查
 pnpm package        # 打包（electron-builder）
 ```
 
+### 打包版本号规则
+
+每次 `pnpm package` 会自动执行 `scripts/bump-version.mjs`，把版本号尾数 +1：
+
+- 尾数固定两位数（01、02 … 99），序列从 `0.1.01` 开始：`0.1.01 → 0.1.02 → … → 0.1.99 → 0.2.01`
+- 版本号写入 `package.json` 的 `version` 字段，应用内显示（`app.getVersion()`）与安装包文件名（electron-builder 的 `${version}` 模板）保持一致
+- 单独手动递增：`pnpm bump:version`
+
 ## 设计文档
 
 - [产品需求文档 v3.0](./FreeCoder%20产品需求文档%20v3.0.md)

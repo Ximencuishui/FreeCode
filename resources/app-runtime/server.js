@@ -78,18 +78,42 @@ let db = null;
 let SQL = null;
 
 // sql.js WASM 初始化 Promise（模块加载时立即启动）
+// 初始化可能因 WASM 内存分配偶发失败（"out of memory"），这里重试几次后再降级，
+// 避免一次性失败导致整个后端实例永久不可用（预览 500）。
 const dbReady = (function () {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  var initSqlJs = require('sql.js');
-  return initSqlJs().then(function (sqlModule) {
-    SQL = sqlModule;
-    // 加载或创建数据库
-    var fileData = null;
-    try { fileData = fs.readFileSync(DB_FILE); } catch (_e) { /* 新库 */ }
-    db = fileData ? new SQL.Database(fileData) : new SQL.Database();
-    createTables(db);
-    saveDatabase();
-  });
+  // sql.js 的初始化 Promise 失败后会被模块级永久缓存，重试前需清掉模块缓存重新加载
+  function freshInitSqlJs() {
+    try { delete require.cache[require.resolve('sql.js')]; } catch (_e) { /* 首次加载无需清理 */ }
+    return require('sql.js');
+  }
+  function retryLater(attempt) {
+    return new Promise(function (resolve) { setTimeout(resolve, 150 * attempt); });
+  }
+  function initAttempt(attempt) {
+    return freshInitSqlJs()()
+      .then(function (sqlModule) {
+        SQL = sqlModule;
+        // 加载或创建数据库
+        var fileData = null;
+        try { fileData = fs.readFileSync(DB_FILE); } catch (_e) { /* 新库 */ }
+        db = fileData ? new SQL.Database(fileData) : new SQL.Database();
+        createTables(db);
+        saveDatabase();
+      })
+      .catch(function (err) {
+        if (attempt < 3) {
+          // 瞬态失败（内存不足等）：短暂等待后重试
+          return retryLater(attempt).then(function () { return initAttempt(attempt + 1); });
+        }
+        // 重试仍失败时静默降级为无数据库模式：
+        // 必须吞掉 rejection，否则 require(server.js) 的宿主（PreviewServer）会收到
+        // 无法捕获的 unhandledRejection，污染主进程。业务 API 会走内存降级路径。
+        SQL = null;
+        console.warn('[server.js] sql.js 初始化失败，后端将降级为内存模式:', err && err.message ? err.message : err);
+      });
+  }
+  return initAttempt(1);
 })();
 
 function createTables(sqlDb) {

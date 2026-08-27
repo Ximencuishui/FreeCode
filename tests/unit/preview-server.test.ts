@@ -109,9 +109,18 @@ describe('预览服务器（IT-PRV）', () => {
   });
 
   it('IT-PRV-004 端口冲突：占用 3000 后自动使用下一端口', async () => {
-    // 占用 3000
+    // 占用 3000（若已被其他进程占用，如应用预览服务，则跳过 blocker——服务器同样应跳到 3001）
     const blocker = net.createServer();
-    await new Promise<void>((resolve) => blocker.listen(3000, '127.0.0.1', resolve));
+    let blocked = false;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        blocker.once('error', reject);
+        blocker.listen(3000, '127.0.0.1', resolve);
+      });
+      blocked = true;
+    } catch {
+      /* 3000 已被占用：无需 blocker */
+    }
 
     const dir = await makeProjectDir();
     const server = new PreviewServer();
@@ -120,7 +129,7 @@ describe('预览服务器（IT-PRV）', () => {
       expect(info.port).toBe(3001);
     } finally {
       await server.stop();
-      blocker.close();
+      if (blocked) blocker.close();
       await fs.rm(dir, { recursive: true, force: true });
     }
   });
@@ -162,6 +171,62 @@ describe('预览服务器（IT-PRV）', () => {
         req.end();
       });
       expect(status).toBe(403);
+    } finally {
+      await server.stop();
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('后端毒化自愈：API 抛错后重载 server.js 自动恢复（修复预览 500 打不开）', async () => {
+    // 模拟项目 server.js 的 dbReady 被初始化失败毒化：模块加载时读标记文件，
+    // 标记存在则该实例所有调用抛错（与 sql.js OOM 后 dbReady 永久 rejected 行为一致）
+    const dir = await makeProjectDir();
+    await fs.writeFile(
+      path.join(dir, 'server.js'),
+      [
+        `'use strict';`,
+        `const fs = require('fs');`,
+        `const path = require('path');`,
+        `const poisoned = fs.existsSync(path.join(__dirname, 'poisoned.flag'));`,
+        `module.exports = {`,
+        `  handleApi: async function () {`,
+        `    if (poisoned) throw new Error('模拟后端初始化失败（毒化实例）');`,
+        `    return { status: 200, body: { ok: true } };`,
+        `  },`,
+        `};`,
+      ].join('\n'),
+      'utf-8',
+    );
+    await fs.writeFile(path.join(dir, 'poisoned.flag'), 'x', 'utf-8');
+    const server = new PreviewServer();
+    try {
+      const { port } = await server.start(dir);
+      // 第一次调用：毒化实例抛错 → 触发重载重试，重载后仍毒化 → 500（携带真实错误）
+      const first = await httpJson(port, 'GET', '/api/health');
+      expect(first.status).toBe(500);
+      expect(JSON.stringify(first.json)).toContain('毒化实例');
+
+      // 移除毒化标记 → 下一次调用触发重载成功，自动恢复
+      await fs.rm(path.join(dir, 'poisoned.flag'));
+      const second = await httpJson(port, 'GET', '/api/health');
+      expect(second.status).toBe(200);
+      expect(second.json.ok).toBe(true);
+    } finally {
+      await server.stop();
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('后端加载失败：/api 返回 503 且携带真实错误信息（不静默吞错）', async () => {
+    const dir = await makeProjectDir();
+    // 语法错误的 server.js：require 阶段即抛错
+    await fs.writeFile(path.join(dir, 'server.js'), 'this is not valid js !!!', 'utf-8');
+    const server = new PreviewServer();
+    try {
+      const { port } = await server.start(dir);
+      const res = await httpJson(port, 'GET', '/api/health');
+      expect(res.status).toBe(503);
+      expect(JSON.stringify(res.json)).toContain('后端尚未就绪');
     } finally {
       await server.stop();
       await fs.rm(dir, { recursive: true, force: true });

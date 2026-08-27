@@ -29,8 +29,15 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: 5180,
     strictPort: true,
+    watch: {
+      // 忽略编辑器的原子写临时目录/文件（避免 Windows 上 EBUSY 让 dev server 崩溃）
+      ignored: [
+        '**/*.tmpdir/**',
+        '**/*.tmp',
+      ],
+    },
   },
   build: {
     // renderer 默认输出 dist/，main/preload 由 vite-plugin-electron 输出到 dist/main、dist/preload

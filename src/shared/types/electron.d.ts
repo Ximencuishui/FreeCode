@@ -1,6 +1,8 @@
 import type {
   ChatSendParams,
   ChatSendResult,
+  ChatStopParams,
+  ChatStopResult,
   ChatResponseEvent,
   SignalEvent,
   ChatHistoryParams,
@@ -14,6 +16,7 @@ import type {
   ElementSelectParams,
   ElementSelectResult,
   PreviewRefreshResult,
+  PreviewOpenExternalResult,
 } from './preview';
 import type {
   ProjectListResult,
@@ -28,6 +31,14 @@ import type {
   ProjectConfirmPlanParams,
   ProjectConfirmPlanResult,
   ProjectSelectLocationResult,
+  UpdateRequirementsParams,
+  UpdateRequirementsResult,
+  ProjectResumeDevelopmentParams,
+  ProjectResumeDevelopmentResult,
+  ProjectAutoTestParams,
+  ProjectAutoTestResult,
+  ProjectConvertToLocalModeParams,
+  ProjectConvertToLocalModeResult,
 } from './project';
 import type { ExportStartParams, ExportStartResult, ExportCompleteEvent } from './export';
 import type {
@@ -40,6 +51,8 @@ import type {
   SettingsUpdateResult,
   ApiKeySaveParams,
   ApiKeySaveResult,
+  ApiKeyTestParams,
+  ApiKeyTestResult,
   ApiKeyValidateParams,
   ApiKeyValidateResult,
 } from './settings';
@@ -56,6 +69,8 @@ declare global {
     electron: {
       chat: {
         send: (params: ChatSendParams) => Promise<ChatSendResult>;
+        /** 主动停止当前任务（中断 dsh 子进程，不产生回复） */
+        stop: (params: ChatStopParams) => Promise<ChatStopResult>;
         onResponse: (callback: (data: ChatResponseEvent) => void) => Unsubscribe;
         onSignal: (callback: (data: SignalEvent) => void) => Unsubscribe;
         getHistory: (params: ChatHistoryParams) => Promise<ChatHistoryResult>;
@@ -64,6 +79,8 @@ declare global {
         start: (params: PreviewStartParams) => Promise<PreviewStartResult>;
         stop: () => Promise<PreviewStopResult>;
         refresh: () => Promise<PreviewRefreshResult>;
+        /** 用系统浏览器打开当前预览（真实测试，不受元素选择干扰） */
+        openExternal: () => Promise<PreviewOpenExternalResult>;
         onStatus: (callback: (data: PreviewStatusEvent) => void) => Unsubscribe;
         selectElement: (params: ElementSelectParams) => Promise<ElementSelectResult>;
       };
@@ -77,6 +94,21 @@ declare global {
         confirmPlan: (params: ProjectConfirmPlanParams) => Promise<ProjectConfirmPlanResult>;
         /** 弹出系统文件夹选择器，返回用户选中的保存位置 */
         selectLocation: () => Promise<ProjectSelectLocationResult>;
+        /** 手动编辑需求（确认前修改需求项并持久化） */
+        updateRequirements: (
+          params: UpdateRequirementsParams,
+        ) => Promise<UpdateRequirementsResult>;
+        /** 恢复/重启开发任务（开发被中断时，从进度引导卡触发） */
+        resumeDevelopment: (
+          params: ProjectResumeDevelopmentParams,
+        ) => Promise<ProjectResumeDevelopmentResult>;
+        /** 自动测试：编写测试用例、运行检查并审计代码，输出测试报告 */
+        autoTest: (params: ProjectAutoTestParams) => Promise<ProjectAutoTestResult>;
+        /** 转本地模式：把 requirements.authentication 改为 none 并打回 planned，
+         *  让用户在对话页重新触发「确认 V1 计划 → 重新开发」以应用新 prompt 生成纯前端版本 */
+        convertToLocalMode: (
+          params: ProjectConvertToLocalModeParams,
+        ) => Promise<ProjectConvertToLocalModeResult>;
       };
       export: {
         start: (params: ExportStartParams) => Promise<ExportStartResult>;
@@ -93,6 +125,8 @@ declare global {
       apikey: {
         save: (params: ApiKeySaveParams) => Promise<ApiKeySaveResult>;
         validate: (params: ApiKeyValidateParams) => Promise<ApiKeyValidateResult>;
+        /** 真实连接测试：用待保存的 Key 调端点 /models，验证 Key 有效性与连通性 */
+        test: (params: ApiKeyTestParams) => Promise<ApiKeyTestResult>;
       };
       app: {
         getInfo: () => Promise<AppInfo>;

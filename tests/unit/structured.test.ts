@@ -29,6 +29,32 @@ describe('需求结构化解析（UT-REQ）', () => {
     expect(parsed?.platform).toBe('web');
   });
 
+  it('UT-REQ-001b 解析 UX/前端字段（页面/布局/感觉/设备/流程）', () => {
+    const reply = JSON.stringify({
+      goal: '目标',
+      target_users: '用户',
+      core_features: ['功能'],
+      pages: ['首页', '添加记录', '统计报表'],
+      layout: '顶部导航 + 内容区',
+      style_feeling: '简洁清爽',
+      device: 'both',
+      key_flows: ['添加后立即刷新并提示成功', '删除需要二次确认'],
+    });
+    const parsed = tryParseRequirements(reply);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.pages).toEqual(['首页', '添加记录', '统计报表']);
+    expect(parsed?.layout).toBe('顶部导航 + 内容区');
+    expect(parsed?.style_feeling).toBe('简洁清爽');
+    expect(parsed?.device).toBe('both');
+    expect(parsed?.key_flows).toEqual(['添加后立即刷新并提示成功', '删除需要二次确认']);
+
+    // 映射到存储层
+    const req = toRequirements('p1', parsed!);
+    expect(req.pages).toEqual(['首页', '添加记录', '统计报表']);
+    expect(req.device).toBe('both');
+    expect(req.keyFlows).toEqual(['添加后立即刷新并提示成功', '删除需要二次确认']);
+  });
+
   it('UT-REQ-002 部分信息缺失：缺可选字段不报错，缺核心字段返回 null', () => {
     // 缺 visual_style：仍可解析
     const partial = tryParseRequirements(

@@ -9,6 +9,7 @@ export function defaultSettings(): StoredSettings {
     darkMode: false,
     telemetryEnabled: false,
     provider: 'deepseek',
+    model: 'deepseek-v4-flash',
     preview: {
       autoOpen: true,
       portRange: [3000, 3010],

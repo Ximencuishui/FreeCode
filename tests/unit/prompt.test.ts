@@ -91,6 +91,30 @@ describe('对话任务构建（prompt）', () => {
     expect(task).toContain('不要修改或删除 auth.js、server.js');
   });
 
+  it('buildDevelopmentTask：authentication=none 走本地模式，不引入 auth.js、改用 localStorage', () => {
+    const task = buildDevelopmentTask({ ...requirements, authentication: 'none' });
+    // 本地模式不应出现登录模式专属的 SDK 具体方法调用（泛指 FreeCoderAuth.* 不算）
+    expect(task).not.toContain('FreeCoderAuth.init');
+    expect(task).not.toContain('FreeCoderAuth.requireLogin');
+    expect(task).not.toContain('FreeCoderAuth.data');
+    expect(task).not.toContain('FreeCoderAuth.isLoggedIn');
+    expect(task).not.toContain('FreeCoderAuth.logout');
+    // 不应出现「按以下方式集成」这种登录模式说明
+    expect(task).not.toContain('请按以下方式集成');
+    // 本地模式提供 localStorage 模板 + 反向禁令
+    expect(task).toContain('localStorage');
+    expect(task).toContain('不要引入');
+    expect(task).toContain('不要在代码里调用');
+    expect(task).toContain('本地模式');
+  });
+
+  it('buildDevelopmentTask：authentication=password 仍走登录模式', () => {
+    const task = buildDevelopmentTask({ ...requirements, authentication: 'password' });
+    expect(task).toContain('auth.js');
+    expect(task).toContain('FreeCoderAuth.init');
+    expect(task).not.toContain('本地模式');
+  });
+
   it('buildDevelopmentTask：有版本计划时只开发 V1 子集', () => {
     const plan: VersionPlan = {
       versions: [

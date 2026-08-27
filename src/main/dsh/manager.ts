@@ -134,15 +134,19 @@ export class DSHProcessManager extends EventEmitter {
 
     let child: ChildProcessWithoutNullStreams;
     try {
+      // Windows 上 .cmd/.bat 需要经 shell 执行（node spawn 直接执行会 ENOENT）。
+      // headless CLI 把多个位置参数 join 成任务文本，shell 展开空格不会破坏语义。
+      const isCmdScript = process.platform === 'win32' && /\.(cmd|bat)$/i.test(cmd);
       child = spawn(cmd, args, {
         cwd: this.options.cwd,
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
+        shell: isCmdScript,
       });
     } catch (error) {
       this.setStatus('error');
-      this.emit('error', error);
+      this.safeEmitError(error);
       return;
     }
 
@@ -160,7 +164,7 @@ export class DSHProcessManager extends EventEmitter {
       // spawn 失败（如命令不存在）：不会触发 exit，需手动收尾避免调用方挂起
       this.child = null;
       this.setStatus('error');
-      this.emit('error', error);
+      this.safeEmitError(error);
       this.emit('exit', { code: -1, signal: null, restarted: false });
     });
     child.on('exit', (code, signal) => {
@@ -186,6 +190,20 @@ export class DSHProcessManager extends EventEmitter {
 
   clearStdout(): void {
     this.buffer = '';
+  }
+
+  /**
+   * 安全地派发 'error' 事件。
+   * EventEmitter 在无 'error' 监听器时 emit('error') 会同步抛出，导致主进程
+   * 出现 "Uncaught Exception" 崩溃弹窗（spawn 失败时曾因此硬崩）。这里改为：
+   * 有监听器 → 正常派发；无监听器 → 仅记录日志，避免进程崩溃。
+   */
+  private safeEmitError(error: unknown): void {
+    if (this.listenerCount('error') > 0) {
+      this.emit('error', error);
+      return;
+    }
+    console.error('[DSHProcessManager] 子进程错误（无监听器，已降级为日志）：', error);
   }
 
   private setStatus(status: DSHStatus): void {

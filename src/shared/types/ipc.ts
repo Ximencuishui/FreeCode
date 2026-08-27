@@ -16,6 +16,7 @@ export const IpcChannels = {
   previewStatus: 'preview:status',
   previewElement: 'preview:element',
   previewRefresh: 'preview:refresh',
+  previewOpenExternal: 'preview:open-external',
   // 项目
   projectList: 'project:list',
   projectCreate: 'project:create',
@@ -24,6 +25,10 @@ export const IpcChannels = {
   projectConfirm: 'project:confirm',
   projectConfirmPlan: 'project:confirm-plan',
   projectSelectLocation: 'project:select-location',
+  projectUpdateRequirements: 'project:update-requirements',
+  projectResumeDevelopment: 'project:resume-development',
+  projectAutoTest: 'project:auto-test',
+  projectConvertToLocalMode: 'project:convert-to-local-mode',
   // 导出
   exportStart: 'export:start',
   exportComplete: 'export:complete',
@@ -35,6 +40,9 @@ export const IpcChannels = {
   // API Key
   apiKeySave: 'apikey:save',
   apiKeyValidate: 'apikey:validate',
+  apiKeyTest: 'apikey:test',
+  // 对话控制
+  chatStop: 'chat:stop',
   // 应用
   appInfo: 'app:info',
   appQuit: 'app:quit',
@@ -58,8 +66,11 @@ export type ErrorCode =
   | 'DSH_NOT_RUNNING'
   | 'DSH_RUNNING'
   | 'DSH_START_FAILED'
+  | 'DSH_TIMEOUT'
+  | 'TASK_CANCELLED'
   | 'API_KEY_INVALID'
   | 'API_KEY_MISSING'
+  | 'RATE_LIMIT'
   | 'PREVIEW_NOT_RUNNING'
   | 'PREVIEW_ALREADY_RUNNING'
   | 'EXPORT_FAILED'

@@ -70,7 +70,24 @@ export interface Requirements {
   dataRequirements?: string[];
   visualStyle?: string;
   platform?: 'web' | 'mini-program' | 'both';
+  /** 主要页面/界面清单（UX：首页、添加记录、统计报表…） */
+  pages?: string[];
+  /** 布局偏好（如：顶部导航+内容区；左侧菜单+右侧详情；单页卡片流） */
+  layout?: string;
+  /** 界面感觉（用户口语描述：简洁/活泼/专业…可含色彩偏好） */
+  styleFeeling?: string;
+  /** 主要使用设备 */
+  device?: 'desktop' | 'mobile' | 'both';
+  /** 关键操作流程（如：添加后立即刷新并提示成功） */
+  keyFlows?: string[];
+  /** 是否需要登录/账号体系（非技术用户易忽略的边界维度） */
   authentication?: 'none' | 'password' | 'wechat' | 'sms';
+  /** 使用规模（单人 / 小团队 / 公开多人） */
+  usageScale?: 'solo' | 'team' | 'public';
+  /** 导出与分享需求（如：导出报告、备份数据、分享链接） */
+  exportFeatures?: string[];
+  /** 界面语言（zh-CN / en-US / both） */
+  uiLanguage?: 'zh-CN' | 'en-US' | 'both';
   history: {
     version: number;
     timestamp: string;
@@ -84,6 +101,8 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'signal';
   content: string;
+  /** 模型推理过程（思考过程；assistant 消息可含，随消息持久化） */
+  reasoning?: string;
   signal?: {
     type: SignalType;
     suggestions?: string[];

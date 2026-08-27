@@ -8,6 +8,14 @@
 const { ipcRenderer } = require('electron');
 
 let overlay = null;
+/** 元素选择模式：默认关闭（正常交互测试）；宿主可切换为 select（悬停高亮+点击识别） */
+let enabled = false;
+
+// 宿主通过 webview.send('preview-mode', mode) 切换模式
+ipcRenderer.on('preview-mode', (_event, mode) => {
+  enabled = mode !== 'normal';
+  if (!enabled) clearHighlight();
+});
 
 function ensureOverlay() {
   if (overlay) return overlay;
@@ -79,17 +87,20 @@ function collectElement(el) {
 }
 
 document.addEventListener('mouseover', (e) => {
+  if (!enabled) return;
   const target = e.target;
   if (!target || target === document.body || target === document.documentElement) return;
   highlight(target);
 }, true);
 
 document.addEventListener('mouseout', (e) => {
+  if (!enabled) return;
   if (e.target === overlay || !overlay) return;
   clearHighlight();
 }, true);
 
 document.addEventListener('click', (e) => {
+  if (!enabled) return;
   const target = e.target;
   if (!target) return;
   // 跳过检查器自身覆盖层

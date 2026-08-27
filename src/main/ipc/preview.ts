@@ -1,4 +1,4 @@
-import { BrowserWindow, app } from 'electron';
+import { BrowserWindow, app, shell } from 'electron';
 import path from 'node:path';
 import { IpcChannels } from '../../shared/types/ipc';
 import type {
@@ -9,10 +9,12 @@ import type {
   ElementSelectParams,
   ElementSelectResult,
   PreviewRefreshResult,
+  PreviewOpenExternalResult,
 } from '../../shared/types/preview';
 import type { StorageManager } from '../storage/types';
 import { PreviewServer } from '../preview/server';
 import { describeElement } from '../preview/inspector';
+import { ensureAuthRuntime } from '../dev/runtime';
 import { handleIpc, IpcError } from './helpers';
 
 /** 向所有窗口推送 preview:status 事件 */
@@ -57,7 +59,11 @@ export function registerPreviewIpc(storage: StorageManager): void {
 
       broadcastStatus({ status: 'starting', message: '正在启动预览…' });
       try {
-        const info = await server.start(storage.getProjectCodePath(params.projectId));
+        const codePath = storage.getProjectCodePath(params.projectId);
+        // 自愈：老项目/异常中断导致缺少登录运行时（auth.js/server.js）时自动补齐，
+        // 否则页面加载 auth.js 404 → app.js 崩溃 → 白屏打不开。
+        await ensureAuthRuntime(codePath);
+        const info = await server.start(codePath);
         await storage.updateProjectMeta(params.projectId, { previewPort: info.port });
         broadcastStatus({ status: 'running', url: info.url });
         return {
@@ -88,6 +94,17 @@ export function registerPreviewIpc(storage: StorageManager): void {
     }
     broadcastStatus({ status: 'running', reload: true });
     return { success: true };
+  });
+
+  // 用系统浏览器打开当前预览（真实测试不受元素选择干扰）
+  handleIpc<undefined, PreviewOpenExternalResult>(IpcChannels.previewOpenExternal, async () => {
+    if (!server.isRunning()) {
+      throw new IpcError('PREVIEW_NOT_RUNNING', '预览尚未启动，无法在浏览器中打开');
+    }
+    const port = server.getPort();
+    const url = `http://localhost:${port}`;
+    await shell.openExternal(url);
+    return { success: true, url };
   });
 
   handleIpc<ElementSelectParams, ElementSelectResult>(

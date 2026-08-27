@@ -59,6 +59,12 @@ if (task.includes('产品需求分析师')) {
   process.exit(0);
 }
 
+// 需求审查模式（确认需求前的最后一道关）
+if (task.includes('需求审查专家')) {
+  console.log('REVIEW_PASS');
+  process.exit(0);
+}
+
 // 版本分段模式（写代码前的 MVP 切分）
 if (task.includes('产品经理')) {
   console.log(

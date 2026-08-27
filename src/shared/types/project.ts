@@ -24,6 +24,8 @@ export interface ProjectSummary {
   name: string;
   createdAt: string;
   updatedAt: string;
+  /** 最近打开时间（用于欢迎页"最近项目"排序） */
+  lastOpenedAt: string;
   status: ProjectStatus;
 }
 
@@ -71,6 +73,16 @@ export interface ProjectRequirements {
   targetUsers: string;
   coreFeatures: string[];
   visualStyle: string;
+  pages?: string[];
+  layout?: string;
+  styleFeeling?: string;
+  device?: 'desktop' | 'mobile' | 'both';
+  keyFlows?: string[];
+  authentication?: 'none' | 'password' | 'wechat' | 'sms';
+  usageScale?: 'solo' | 'team' | 'public';
+  exportFeatures?: string[];
+  uiLanguage?: 'zh-CN' | 'en-US' | 'both';
+  platform?: 'web' | 'mini-program' | 'both';
 }
 
 export interface ProjectDetail {
@@ -103,15 +115,73 @@ export interface RequirementSummary {
   targetUsers: string;
   coreFeatures: string[];
   visualStyle?: string;
+  pages?: string[];
+  layout?: string;
+  styleFeeling?: string;
+  device?: 'desktop' | 'mobile' | 'both';
+  keyFlows?: string[];
+  authentication?: 'none' | 'password' | 'wechat' | 'sms';
+  usageScale?: 'solo' | 'team' | 'public';
+  exportFeatures?: string[];
+  uiLanguage?: 'zh-CN' | 'en-US' | 'both';
+  platform?: 'web' | 'mini-program' | 'both';
   confirmed: boolean;
+}
+
+/** 用户可编辑的需求字段（确认前修改需求项） */
+export type RequirementEditable = Omit<RequirementSummary, 'confirmed'>;
+
+export interface UpdateRequirementsParams {
+  projectId: string;
+  requirements: Partial<RequirementEditable>;
+}
+
+export interface UpdateRequirementsResult {
+  success: boolean;
+  error?: string;
+}
+
+export interface ProjectResumeDevelopmentParams {
+  projectId: string;
+}
+
+export interface ProjectResumeDevelopmentResult {
+  success: boolean;
+  message?: string;
+}
+
+export interface ProjectAutoTestParams {
+  projectId: string;
+}
+
+export interface ProjectAutoTestResult {
+  success: boolean;
+  /** 测试报告文本（成功时） */
+  report?: string;
+  message?: string;
+}
+
+/** 将项目从登录模式切换到本地模式（仅适用于 authentication !== 'none' 的已有项目） */
+export interface ProjectConvertToLocalModeParams {
+  projectId: string;
+}
+
+export interface ProjectConvertToLocalModeResult {
+  success: boolean;
+  message?: string;
+  error?: string;
 }
 
 export interface ProjectConfirmParams {
   projectId: string;
+  /** true 时跳过 AI 需求审查（用户主动要求直接确认） */
+  skipReview?: boolean;
 }
 
 export interface ProjectConfirmResult {
   success: boolean;
+  /** 需求审查发现矛盾，需要继续澄清（成功后为 undefined） */
+  needsReview?: boolean;
   error?: string;
 }
 

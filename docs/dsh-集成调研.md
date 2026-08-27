@@ -12,13 +12,14 @@ DSH（DeepSeek Harness）是 DeepSeek 开源的 Agent 运行时：基于 cordis 
 
 ### 2.1 CLI 入口与模式
 
-| 命令 | 行为 | FreeCoder 用途 |
-|------|------|----------------|
+| 命令                            | 行为                                                                                                  | FreeCoder 用途                |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------- |
 | `dsh --profile headless "任务"` | 一次性任务：创建持久化 Agent → 提交任务 → 等待完成 → **最终回复写 stdout** → 退出（0=完成，1=未完成） | ✅ 已采用（每轮对话启动一次） |
-| `dsh --profile web` | 浏览器 UI + 本地 HTTP 服务（web-server / api-proxy） | 备选（长驻多轮会话） |
-| `dsh --dump-config` | 打印组合后的配置树 | 调试 |
+| `dsh --profile web`             | 浏览器 UI + 本地 HTTP 服务（web-server / api-proxy）                                                  | 备选（长驻多轮会话）          |
+| `dsh --dump-config`             | 打印组合后的配置树                                                                                    | 调试                          |
 
 **真实联调验证**（2026-08-19）：
+
 ```
 $ npx --no-install dsh --profile headless "只回复两个字：你好"
 你好
@@ -35,6 +36,7 @@ $ echo $?   # 0
 - API Key 也可经环境变量注入（provider 的 `apiKeyEnv` 字段）
 
 **对 FreeCoder 的意义**：FreeCoder 用户自备 DeepSeek API Key（safeStorage 加密存储）。集成时可为 FreeCoder 准备独立的 `DSH_HOME`（如 `~/.freecoder/dsh-home`），首启时：
+
 1. 用模板初始化 headless profile
 2. 写入 `settings.yaml`（provider=deepseek-official 或自定义 baseURL，model=deepseek-chat 等）
 3. 写入 `.credentials.yaml`（DEEPSEEK_API_KEY = 用户 key，来自 safeStorage 解密）
@@ -49,18 +51,27 @@ $ echo $?   # 0
 
 ## 三、FreeCoder 集成落地（已完成部分）
 
-| 组件 | 位置 | 说明 |
-|------|------|------|
-| 进程管理器 | `src/main/dsh/manager.ts` | spawn / stdin/stdout 管道 / 状态机 / 崩溃自动重启（已测 IT-DSH-001~005） |
-| 一次性任务服务 | `src/main/dsh/service.ts` | `runTask(projectDir, task)` → `{ reply, exitCode }`（已测） |
-| 命令解析 | `resolveDshCommand()` | `FREECODER_DSH_COMMAND` 环境变量覆盖，默认 PATH 中的 `dsh` |
+| 组件           | 位置                      | 说明                                                                                     |
+| -------------- | ------------------------- | ---------------------------------------------------------------------------------------- |
+| 进程管理器     | `src/main/dsh/manager.ts` | spawn / stdin/stdout 管道 / 状态机 / 崩溃自动重启（已测 IT-DSH-001~005）                 |
+| 一次性任务服务 | `src/main/dsh/service.ts` | `runTask(projectDir, task)` → `{ reply, exitCode }`（已测）                              |
+| 命令解析       | `resolveDshLaunch()`      | 优先级：`FREECODER_DSH_COMMAND` 环境变量 → 应用内置运行时（resources/）→ PATH 中的 `dsh` |
 
-## 四、打包注意事项（WP-25 落地）
+## 四、打包注意事项（已落地）
 
-- 应用分发需内置 Node 运行时 + `@deepseek-ai/dsh` 包（`resources/dsh/`），启动命令形如：
-  `[node.exe, <resources>/dsh/bin.js, --profile, headless, task]`
-- 通过 `FREECODER_DSH_COMMAND` 指向内置运行时
-- DSH 依赖体积较大（cordis 全家桶），打包时需裁剪（仅 headless 所需 bundle）
+- 应用分发内置 Node 运行时 + `@deepseek-ai/dsh` 完整运行时：
+  - `resources/node/node.exe`（内置 Node，来自本机 node 安装）
+  - `resources/dsh/node_modules/...`（dsh 全家桶运行时，含 `@deepseek-ai/dsh/lib/bin.js`）
+- 生成方式：`pnpm bundle:dsh`（`scripts/bundle-dsh.mjs`，从 G:\DSH 的 npm 安装点复制完整
+  node_modules + node.exe，并做 `--help` 冒烟启动校验），产物已 gitignore、不入库
+- 启动命令：`[<resources>/node/node.exe, <resources>/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js, --profile, headless, task]`
+  （`src/main/dsh/service.ts` `resolveDshLaunch()` 自动解析：环境变量 → 内置运行时 → PATH）
+- 必须用真实 Node 运行：headless 捆绑包在启动时会 import `node-pty`（按 Node ABI 预编译的
+  原生模块），Electron 的 `ELECTRON_RUN_AS_NODE` 存在 ABI 不兼容风险，不能使用
+- 若直接复制部分依赖会缺包：dsh 部分包存在未在 package.json 声明却直接 import 的依赖
+  （如 `dsh-app-boot` → `cordis-plugin-group`），因此采用完整复制而非静态依赖闭包
+- DSH 依赖体积较大（cordis 全家桶 + node-pty 等），完整复制约 330MB（未压缩），
+  后续可按 headless 实际加载的 bundle 裁剪以减小安装包
 
 ## 五、风险与后续
 
