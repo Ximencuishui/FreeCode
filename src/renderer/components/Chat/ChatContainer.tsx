@@ -4,6 +4,9 @@ import Message from './Message';
 import MessageInput from './MessageInput';
 import ResumeCard from './ResumeCard';
 import Logo from '../Logo';
+import Marquee from '../Marquee';
+import AutoTestPlanCard from './AutoTestPlanCard';
+import AutoTestSummaryCard from './AutoTestSummaryCard';
 
 interface ChatContainerProps {
   /** 需求收敛卡片的 CTA：确认需求并进入版本规划（由 App 提供） */
@@ -31,6 +34,12 @@ export default function ChatContainer({
   const thinkingText = useChatStore((s) => s.thinkingText);
   const projectStatus = useChatStore((s) => s.projectStatus);
   const devProgress = useChatStore((s) => s.devProgress);
+  const autoTestPlan = useChatStore((s) => s.autoTestPlan);
+  const autoTestCurrentStep = useChatStore((s) => s.autoTestCurrentStep);
+  const autoTestStartedAt = useChatStore((s) => s.autoTestStartedAt);
+  const autoTestExpectedDurationMs = useChatStore((s) => s.autoTestExpectedDurationMs);
+  const autoTestLatestToolLabel = useChatStore((s) => s.autoTestLatestToolLabel);
+  const autoTestLastSummary = useChatStore((s) => s.autoTestLastSummary);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const stopTask = useChatStore((s) => s.stopTask);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -93,6 +102,31 @@ export default function ChatContainer({
             autoTestLatestProgress={autoTestLatestProgress}
           />
         )}
+        {/* 自动测试计划：进行中显示 5 步进度 + 预计剩余时间；完成后显示耗时摘要 */}
+        {autoTestPlan && autoTestRunning && (
+          <div className="flex justify-start">
+            <div className="max-w-[85%]">
+              <AutoTestPlanCard
+                plan={autoTestPlan}
+                currentStep={autoTestCurrentStep}
+                startedAt={autoTestStartedAt}
+                expectedDurationMs={autoTestExpectedDurationMs}
+                latestProgress={autoTestLatestToolLabel}
+                dataTestid="fc-chat-auto-test-plan"
+              />
+            </div>
+          </div>
+        )}
+        {autoTestLastSummary && !autoTestRunning && (
+          <div className="flex justify-start">
+            <div className="max-w-[85%]">
+              <AutoTestSummaryCard
+                summary={autoTestLastSummary}
+                dataTestid="fc-chat-auto-test-summary"
+              />
+            </div>
+          </div>
+        )}
         {isProcessing && (
           <div className="flex justify-start">
             <div className="max-w-[85%] rounded-xl border border-amber-200/70 bg-amber-50/60 px-4 py-2.5 text-xs leading-relaxed text-slate-500">
@@ -101,10 +135,17 @@ export default function ChatContainer({
               ) : (
                 <div className="text-sm text-slate-400">正在思考…</div>
               )}
-              <div className="mt-2 flex items-center justify-between gap-3 border-t border-amber-200/70 pt-2">
-                <span className="text-[11px] text-amber-600/80">
-                  {thinkingText ? 'AI 正在推理中…' : 'AI 正在执行中…'}
-                </span>
+              {/* 跑马灯：明示「还在跑」，避免用户误判为卡死 */}
+              <div className="mt-2">
+                <Marquee
+                  variant="amber"
+                  speed="normal"
+                  text={thinkingText ? 'AI 正在推理中' : 'AI 正在执行中'}
+                  height="tight"
+                  dataTestid="fc-chat-thinking-marquee"
+                />
+              </div>
+              <div className="mt-2 flex items-center justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => void stopTask()}

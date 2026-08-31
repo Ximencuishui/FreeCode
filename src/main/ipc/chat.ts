@@ -12,6 +12,7 @@ import type { DSHService } from '../dsh/service';
 import { ChatFlow } from '../chat/flow';
 import { DSHError } from '../dsh/errors';
 import { handleIpc, IpcError } from './helpers';
+import { toolProgressLabel } from '../dev/developer';
 
 /** 向所有窗口推送 chat:response 事件 */
 function broadcastResponse(projectId: string, event: ChatResponseEvent): void {
@@ -76,14 +77,33 @@ export function registerChatIpc(storage: StorageManager, dsh: DSHService): void 
         params.message.trim(),
         params.selectedElement,
         (update) => {
-          // 对话场景只转发推理流（思考过程实时展示）；工具调用进度留给开发场景
-          if (update.kind !== 'reasoning') return;
-          liveReasoning += update.text;
-          broadcastResponse(params.projectId, {
-            type: 'thinking',
-            content: liveReasoning,
-            timestamp: new Date().toISOString(),
-          });
+          // 推理流：实时累加展示（避免用户空等）
+          if (update.kind === 'reasoning') {
+            liveReasoning += update.text;
+            broadcastResponse(params.projectId, {
+              type: 'thinking',
+              content: liveReasoning,
+              timestamp: new Date().toISOString(),
+            });
+            return;
+          }
+          // 工具调用 / 工具结果：转成"开发进度"广播，与项目开发路径一致，
+          // 让"💬 开发日志"标签在 chat 修改模式下也能看到 DSH 的操作过程。
+          // （draft 阶段走需求分析 prompt，DSH 不会调工具，自然不会出现误报）
+          let label: string | null = null;
+          if (update.kind === 'tool') {
+            label = toolProgressLabel(update.text);
+          } else if (update.kind === 'tool-result') {
+            const text = update.text.trim().replace(/\s+/g, ' ').slice(0, 100);
+            if (text) label = `✓ ${text}`;
+          }
+          if (label) {
+            broadcastResponse(params.projectId, {
+              type: 'progress',
+              content: label,
+              timestamp: new Date().toISOString(),
+            });
+          }
         },
         controller.signal,
       );

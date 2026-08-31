@@ -1,11 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { useChatStore } from '../../store/chat';
+import Marquee from '../Marquee';
 
 interface MiniChatProps {
   placeholder?: string;
   /** 受控模式：外部传入当前输入值（如快捷选择卡自动填入指令） */
   value?: string;
   onValueChange?: (v: string) => void;
+  /**
+   * 处理中是否启用「跑马灯」动画。默认 false（保持静态文案，避免给主右窗造成视觉负担）；
+   * preview 视图 AssistantPanel 内嵌的 MiniChat 需要明显的「还在跑」指示，传 true 启用。
+   */
+  marqueeOnProcessing?: boolean;
+  /** 跑马灯文案（默认「正在处理中」） */
+  marqueeText?: string;
 }
 
 /** 迷你对话（右侧面板内嵌）：最近消息 + 输入框；发送走主对话流，选中元素时自动带上元素上下文 */
@@ -13,6 +21,8 @@ export default function MiniChat({
   placeholder = '输入消息，Enter 发送…',
   value,
   onValueChange,
+  marqueeOnProcessing = false,
+  marqueeText,
 }: MiniChatProps) {
   const messages = useChatStore((s) => s.messages);
   const isProcessing = useChatStore((s) => s.isProcessing);
@@ -60,7 +70,19 @@ export default function MiniChat({
             </div>
           </div>
         ))}
-        {isProcessing && <div className="py-1 text-center text-slate-400">AI 正在处理…</div>}
+        {isProcessing && marqueeOnProcessing && (
+          <Marquee
+            variant="emerald"
+            speed="normal"
+            text={marqueeText ?? 'AI 正在处理中'}
+            height="tight"
+            className="mt-1"
+            dataTestid="fc-minichat-marquee"
+          />
+        )}
+        {isProcessing && !marqueeOnProcessing && (
+          <div className="py-1 text-center text-slate-400">AI 正在处理…</div>
+        )}
       </div>
       <div className="mt-2 flex gap-2">
         <input

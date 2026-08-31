@@ -4,6 +4,49 @@ export type ProjectStatus = 'draft' | 'planned' | 'developing' | 'ready' | 'expo
 
 export type ProjectTemplate = 'blank' | 'blog' | 'ecommerce' | 'tool';
 
+/** 自动测试结论：决定 UI 完成态分流（可上线 / 有非阻塞问题 / 有阻塞问题） */
+export type TestVerdict = 'pass' | 'warn' | 'block';
+
+/** 自动测试报告里的单条问题 */
+export interface TestIssue {
+  severity: 'high' | 'medium' | 'low';
+  title: string;
+  detail?: string;
+  file?: string;
+}
+
+/** 自动测试结构化报告（主进程解析后透传给 renderer） */
+export interface StructuredTestReport {
+  verdict: TestVerdict;
+  verdictLabel?: string;
+  summary?: string;
+  issues: TestIssue[];
+  /** 剥掉 JSON 机器段后的剩余文本（给用户看的完整报告） */
+  fullReport: string;
+}
+
+/** 自动测试计划中的单步（与 src/main/dsh/prompt.ts buildAutoTestTask 的步骤定义对齐） */
+export interface AutoTestPlanStep {
+  key: 'inspect' | 'write-tests' | 'run-checks' | 'audit-code' | 'summary';
+  title: string;
+  description: string;
+}
+
+/**
+ * 自动测试计划完成后的耗时摘要。
+ * 渲染层依据工具调用进度推断步骤（heuristic）记录各步骤起始时间，
+ * 在测试完成时汇总为 stepDurationsMs，与 steps 一一对应。
+ */
+export interface AutoTestPlanSummary {
+  steps: AutoTestPlanStep[];
+  /** 各步骤实际耗时（毫秒），与 steps 等长。 */
+  stepDurationsMs: number[];
+  /** 测试总耗时（毫秒，从 thinking 到 message） */
+  totalDurationMs: number;
+  /** 完成时间 ISO */
+  finishedAt: string;
+}
+
 /** 版本分段：单个版本（V1 为最小可用版本 MVP） */
 export interface VersionPlanVersion {
   /** 版本标签，如 "V1" / "V2" */
@@ -158,6 +201,8 @@ export interface ProjectAutoTestResult {
   success: boolean;
   /** 测试报告文本（成功时） */
   report?: string;
+  /** 结构化测试报告（机器可读），用于 UI 完成态分流；解析失败时 verdict='warn' */
+  structured?: StructuredTestReport;
   message?: string;
 }
 

@@ -1,4 +1,4 @@
-import type { RequirementSummary } from './project';
+import type { RequirementSummary, StructuredTestReport } from './project';
 import type { ElementInfo } from './preview';
 
 /** 对话域类型（API 文档 4.1） */
@@ -42,6 +42,11 @@ export interface ChatResponseEvent {
   requirements?: RequirementSummary | null;
   /** 事件来源：用于 renderer 区分通用对话 / 开发过程 / 自动测试 */
   source?: ChatResponseSource;
+  /**
+   * 自动测试报告（仅 source='auto-test' 且 type='message' 时附带）。
+   * 渲染端据此分流完成态（pass/warn/block）。
+   */
+  autoTestReport?: StructuredTestReport;
   timestamp: string;
 }
 

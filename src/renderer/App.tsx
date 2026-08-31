@@ -73,8 +73,14 @@ export default function App() {
   const devTaskRunning = useChatStore((s) => s.devTaskRunning);
   const autoTestRunning = useChatStore((s) => s.autoTestRunning);
   const autoTestLatestProgress = useChatStore((s) => s.autoTestLatestProgress);
+  const autoTestPlan = useChatStore((s) => s.autoTestPlan);
+  const autoTestCurrentStep = useChatStore((s) => s.autoTestCurrentStep);
+  const autoTestStartedAt = useChatStore((s) => s.autoTestStartedAt);
+  const autoTestExpectedDurationMs = useChatStore((s) => s.autoTestExpectedDurationMs);
+  const autoTestLatestToolLabel = useChatStore((s) => s.autoTestLatestToolLabel);
+  const autoTestLastSummary = useChatStore((s) => s.autoTestLastSummary);
   const devProgress = useChatStore((s) => s.devProgress);
-  const lastTestSummary = useChatStore((s) => s.lastTestSummary);
+  const lastTestReport = useChatStore((s) => s.lastTestReport);
   const apiKeyConfigured = useUiStore((s) => s.apiKeyConfigured);
   const setApiKeyConfigured = useUiStore((s) => s.setApiKeyConfigured);
   const openSettings = useUiStore((s) => s.openSettings);
@@ -293,6 +299,26 @@ export default function App() {
             };
       }
       if (projectStatus === 'ready' || projectStatus === 'exported') {
+        // 测试完成后：phaseText / action 按 verdict 切换，引导进入完成态后的下一动作
+        if (lastTestReport) {
+          const issueTotal = lastTestReport.issues.length;
+          const highTotal = lastTestReport.issues.filter((i) => i.severity === 'high').length;
+          let phaseText = '';
+          if (lastTestReport.verdict === 'pass') {
+            phaseText = '测试通过，可以放心导出部署包';
+          } else if (lastTestReport.verdict === 'warn') {
+            phaseText = `发现 ${issueTotal} 个非阻塞问题，建议先修复再导出`;
+          } else {
+            phaseText = `发现 ${highTotal} 个阻塞问题，暂不可上线`;
+          }
+          return {
+            projectId: currentProjectId,
+            projectName: name,
+            phaseText,
+            action: 'auto-test',
+            actionText: '🧪 再测一次',
+          };
+        }
         return {
           projectId: currentProjectId,
           projectName: name,
@@ -388,6 +414,7 @@ export default function App() {
     versionPlan,
     devTaskRunning,
     currentView,
+    lastTestReport,
   ]);
 
   /** 构建"浏览器测试引导"发言（模板 + 需求关键流程） */
@@ -626,13 +653,20 @@ ${steps}
               onResumeAction={handleResumeAction}
               autoTestRunning={autoTestRunning}
               autoTestLatestProgress={autoTestLatestProgress}
+              autoTestPlan={autoTestPlan}
+              autoTestCurrentStep={autoTestCurrentStep}
+              autoTestStartedAt={autoTestStartedAt}
+              autoTestExpectedDurationMs={autoTestExpectedDurationMs}
+              autoTestLatestToolLabel={autoTestLatestToolLabel}
+              autoTestLastSummary={autoTestLastSummary}
               selectedElement={selectedElement}
               elementInfo={elementInfo}
               isProcessing={isProcessing}
-              onSendModify={(instruction) => void sendMessage(instruction)}
               devProgress={devProgress}
-              lastTestSummary={lastTestSummary}
+              lastTestReport={lastTestReport}
               onViewReport={() => setView('chat')}
+              onOpenExport={() => openExport()}
+              onSendModify={(instruction) => void sendMessage(instruction)}
               style={{ width: rightWidth }}
             />
           </>

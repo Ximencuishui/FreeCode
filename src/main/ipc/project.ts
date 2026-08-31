@@ -26,6 +26,7 @@ import type { SignalEvent, ChatResponseEvent } from '../../shared/types/chat';
 import type { StorageManager, Requirements } from '../storage/types';
 import type { DSHService } from '../dsh/service';
 import { buildRequirementReviewTask, buildAutoTestTask } from '../dsh/prompt';
+import { parseStructuredTestReport } from '../dsh/testReportParser';
 import { toolProgressLabel } from '../dev/developer';
 import type { Developer } from '../dev/developer';
 import type { VersionPlanner } from '../dev/planner';
@@ -295,25 +296,28 @@ export function registerProjectIpc(
           }
         });
         const report = result.reply.trim();
+        const structured = parseStructuredTestReport(report);
         if (report) {
           const saved = await storage.saveChatMessage(params.projectId, {
             role: 'assistant',
-            content: report,
+            // 聊天里展示人类可读报告（去掉 JSON 机器段后的剩余文本，避免重复）
+            content: structured.fullReport || report,
             reasoning: result.reasoning,
             isComplete: true,
           });
           broadcastResponse(params.projectId, {
             type: 'message',
-            content: report,
+            content: structured.fullReport || report,
             reasoning: result.reasoning,
             messageId: saved.id,
             isComplete: true,
             requirements: null,
             source: 'auto-test',
+            autoTestReport: structured,
             timestamp: new Date().toISOString(),
           });
         }
-        return { success: true, report };
+        return { success: true, report, structured };
       } catch (error) {
         console.warn('[FreeCoder] 自动测试失败：', error);
         return { success: false, message: '自动测试执行失败，请稍后重试' };

@@ -14,3 +14,35 @@ body {
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
     'Microsoft YaHei', sans-serif;
 }
+
+/* 文字跑马灯：内容复制两份，向左滚动 50% 实现无缝循环。
+   提供三档速度，便于在不同上下文选用（不会引起视觉抢占）。
+   名称与组件 speed 取值一致；仅时长不同。 */
+@keyframes fc-marquee-scroll {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.fc-marquee-slow {
+  animation: fc-marquee-scroll 12s linear infinite;
+}
+
+.fc-marquee-normal {
+  animation: fc-marquee-scroll 7s linear infinite;
+}
+
+.fc-marquee-fast {
+  animation: fc-marquee-scroll 4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-marquee-slow,
+  .fc-marquee-normal,
+  .fc-marquee-fast {
+    animation: none;
+  }
+}

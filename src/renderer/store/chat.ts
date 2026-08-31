@@ -3,9 +3,48 @@
  * 与主进程通过 chat:send / chat:response / chat:signal / chat:history 通信。
  */
 import { create } from 'zustand';
-import type { RequirementSummary, VersionPlan, ProjectStatus } from '@shared/types/project';
+import type {
+  RequirementSummary,
+  VersionPlan,
+  ProjectStatus,
+  StructuredTestReport,
+  AutoTestPlanStep,
+  AutoTestPlanSummary,
+} from '@shared/types/project';
 import type { ElementInfo, ElementSelectResult } from '@shared/types/preview';
 import { useUiStore } from './ui';
+
+/** 默认的 5 步测试计划（与 src/main/dsh/prompt.ts buildAutoTestTask 对齐） */
+export const DEFAULT_AUTO_TEST_PLAN: AutoTestPlanStep[] = [
+  {
+    key: 'inspect',
+    title: '检查文件齐全',
+    description: '确认 index.html / style.css / app.js 等文件齐全、结构合理',
+  },
+  {
+    key: 'write-tests',
+    title: '编写测试用例',
+    description: '根据需求编写可执行的测试用例，覆盖核心功能与关键流程',
+  },
+  {
+    key: 'run-checks',
+    title: '运行检查',
+    description: '用 bash 实际运行可行的检查（语法、启动、冒烟测试等）',
+  },
+  {
+    key: 'audit-code',
+    title: '审计代码',
+    description: '检查明显 bug、逻辑漏洞、安全风险（XSS / 注入 / 硬编码密钥等）',
+  },
+  {
+    key: 'summary',
+    title: '输出报告',
+    description: '汇总所有检查结果，输出结构化测试报告',
+  },
+];
+
+/** 默认测试总时长估计（冒烟实测 ~14s，这里留 1.7x 安全裕度） */
+export const DEFAULT_AUTO_TEST_EXPECTED_MS = 25_000;
 
 export interface ChatOption {
   key: string;
@@ -57,8 +96,25 @@ interface ChatState {
   autoTestRunning: boolean;
   /** 自动测试最近一条进度文本（用于 ResumeCard 实时反馈） */
   autoTestLatestProgress: string | null;
-  /** 最近一次自动测试的完成摘要（测试报告到达时保存，用于"测试完成"状态展示） */
-  lastTestSummary: string | null;
+  /**
+   * 最近一次自动测试的结构化报告（用于完成态分流：pass/warn/block + 问题清单）。
+   * 解析失败时 verdict='warn'，issues=[]，fullReport=原文。
+   */
+  lastTestReport: StructuredTestReport | null;
+  /** 自动测试计划步骤（进行中才有值）；UI 依据它渲染进度列表 */
+  autoTestPlan: AutoTestPlanStep[] | null;
+  /** 当前进行的步骤索引：-1 未开始 / 0-4 进行中或已完成 */
+  autoTestCurrentStep: number;
+  /** 当前测试开始的 ms 时间戳（Date.now）；用于计算已用时 */
+  autoTestStartedAt: number | null;
+  /** 估算测试总时长（毫秒）；初次默认 25s，后续从 lastSummary 学习 */
+  autoTestExpectedDurationMs: number;
+  /** 当前测试累计的工具调用次数（用于步骤推断） */
+  autoTestToolCount: number;
+  /** 最近一次工具调用可读文案（toolProgressLabel 输出），用于卡片底部展示 */
+  autoTestLatestToolLabel: string | null;
+  /** 最近一次完成的耗时摘要（用于完成后聊天历史的系统消息） */
+  autoTestLastSummary: AutoTestPlanSummary | null;
   /** 开发进度报告（工具调用流：📝 写入 index.html 等） */
   devProgress: string[];
   currentProjectId: string | null;
@@ -82,7 +138,15 @@ interface ChatState {
   setDevTaskRunning: (v: boolean) => void;
   setAutoTestRunning: (v: boolean) => void;
   setAutoTestLatestProgress: (text: string | null) => void;
-  setLastTestSummary: (text: string | null) => void;
+  setLastTestReport: (report: StructuredTestReport | null) => void;
+  setAutoTestPlan: (plan: AutoTestPlanStep[] | null) => void;
+  setAutoTestCurrentStep: (step: number) => void;
+  setAutoTestStartedAt: (ts: number | null) => void;
+  setAutoTestExpectedDurationMs: (ms: number) => void;
+  setAutoTestToolCount: (n: number) => void;
+  setAutoTestLatestToolLabel: (label: string | null) => void;
+  setAutoTestLastSummary: (summary: AutoTestPlanSummary | null) => void;
+  resetAutoTestPlan: () => void;
   appendDevProgress: (line: string) => void;
   clearDevProgress: () => void;
   pushMessage: (
@@ -104,7 +168,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   devTaskRunning: false,
   autoTestRunning: false,
   autoTestLatestProgress: null,
-  lastTestSummary: null,
+  lastTestReport: null,
+  autoTestPlan: null,
+  autoTestCurrentStep: -1,
+  autoTestStartedAt: null,
+  autoTestExpectedDurationMs: DEFAULT_AUTO_TEST_EXPECTED_MS,
+  autoTestToolCount: 0,
+  autoTestLatestToolLabel: null,
+  autoTestLastSummary: null,
   devProgress: [],
   currentProjectId: null,
   requirements: null,
@@ -126,7 +197,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       devTaskRunning: false,
       autoTestRunning: false,
       autoTestLatestProgress: null,
-      lastTestSummary: null,
+      lastTestReport: null,
+      autoTestPlan: null,
+      autoTestCurrentStep: -1,
+      autoTestStartedAt: null,
+      autoTestToolCount: 0,
+      autoTestLatestToolLabel: null,
+      // 跨项目隔离：避免上一个项目的耗时摘要 / 估算时长污染新项目
+      // （学习过往时长的能力交由聊天历史里的「测试计划已完成」系统消息自行扫描，本轮不跨项目）
+      autoTestLastSummary: null,
+      autoTestExpectedDurationMs: DEFAULT_AUTO_TEST_EXPECTED_MS,
       devProgress: [],
     }),
   setRequirements: (req) => set({ requirements: req }),
@@ -139,7 +219,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setDevTaskRunning: (v) => set({ devTaskRunning: v }),
   setAutoTestRunning: (v) => set({ autoTestRunning: v }),
   setAutoTestLatestProgress: (text) => set({ autoTestLatestProgress: text }),
-  setLastTestSummary: (text) => set({ lastTestSummary: text }),
+  setLastTestReport: (report) => set({ lastTestReport: report }),
+  setAutoTestPlan: (plan) => set({ autoTestPlan: plan }),
+  setAutoTestCurrentStep: (step) => set({ autoTestCurrentStep: step }),
+  setAutoTestStartedAt: (ts) => set({ autoTestStartedAt: ts }),
+  setAutoTestExpectedDurationMs: (ms) => set({ autoTestExpectedDurationMs: ms }),
+  setAutoTestToolCount: (n) => set({ autoTestToolCount: n }),
+  setAutoTestLatestToolLabel: (label) => set({ autoTestLatestToolLabel: label }),
+  setAutoTestLastSummary: (summary) => set({ autoTestLastSummary: summary }),
+  resetAutoTestPlan: () =>
+    set({
+      autoTestPlan: null,
+      autoTestCurrentStep: -1,
+      autoTestStartedAt: null,
+      autoTestToolCount: 0,
+      autoTestLatestToolLabel: null,
+      autoTestRunning: false,
+      autoTestLatestProgress: null,
+    }),
   appendDevProgress: (line) =>
     set((s) => ({ devProgress: [...s.devProgress.slice(-40), line] })),
   clearDevProgress: () => set({ devProgress: [] }),
