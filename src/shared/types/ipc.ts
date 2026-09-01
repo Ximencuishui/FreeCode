@@ -1,6 +1,6 @@
 /**
  * IPC 通道名常量与统一错误契约。
- * 依据《FreeCoder API 接口设计文档》v1.3 定义（25 个通道、错误码体系）。
+ * 依据《FreeCoder API 接口设计文档》v1.3 定义 IPC 通道与错误码体系。
  */
 
 /** 全部 IPC 通道（渲染进程 ↔ 主进程） */
@@ -29,6 +29,12 @@ export const IpcChannels = {
   projectResumeDevelopment: 'project:resume-development',
   projectAutoTest: 'project:auto-test',
   projectConvertToLocalMode: 'project:convert-to-local-mode',
+  /** 扫描项目根目录、docs 与常见图片素材，返回可阅读条目 */
+  projectListDocuments: 'project:list-documents',
+  /** 按主进程扫描到的相对路径读取 Markdown 或图片素材 */
+  projectReadDocument: 'project:read-document',
+  /** 用系统默认应用打开一个项目内的图片素材（仅 SVG 等可外部查看的格式） */
+  projectOpenAsset: 'project:open-asset',
   // 导出
   exportStart: 'export:start',
   exportComplete: 'export:complete',

@@ -2,6 +2,7 @@ import {
   inferAutoTestStep,
   formatDuration,
   estimateRemainingMs,
+  isOvertime,
   progressPercent,
 } from '../../src/renderer/components/Chat/autoTestProgress';
 
@@ -120,16 +121,46 @@ describe('estimateRemainingMs（剩余时间估算）', () => {
     expect(estimateRemainingMs(25_000, null, Date.now())).toBe(25_000);
   });
 
-  it('进行中：剩余 = 期望 - 已用', () => {
+  it('进行中：剩余 = 期望 - 已用（正数）', () => {
     const startedAt = 1_000;
     const now = 1_000 + 10_000;
     expect(estimateRemainingMs(25_000, startedAt, now)).toBe(15_000);
   });
 
-  it('进行中超时：剩余 clamp 到 0（不为负）', () => {
+  it('进行中超时：返回负数（不再 clamp 到 0），由 UI 渲染「已超出预估 X 秒」', () => {
     const startedAt = 1_000;
     const now = 1_000 + 60_000;
-    expect(estimateRemainingMs(25_000, startedAt, now)).toBe(0);
+    // 25s 预估 + 60s 已用 = 超出 35s，剩余应返回 -35_000
+    expect(estimateRemainingMs(25_000, startedAt, now)).toBe(-35_000);
+  });
+});
+
+describe('isOvertime（是否已超出预估）', () => {
+  it('已完成：始终为 false', () => {
+    const startedAt = Date.now() - 60_000;
+    expect(isOvertime(25_000, startedAt, Date.now(), true)).toBe(false);
+  });
+
+  it('未提供开始时间：false', () => {
+    expect(isOvertime(25_000, null, Date.now())).toBe(false);
+  });
+
+  it('进行中且未超时：false', () => {
+    const startedAt = 1_000;
+    const now = 1_000 + 10_000;
+    expect(isOvertime(25_000, startedAt, now)).toBe(false);
+  });
+
+  it('进行中且恰好到期：false（remaining === 0 不算超出）', () => {
+    const startedAt = 1_000;
+    const now = 1_000 + 25_000;
+    expect(isOvertime(25_000, startedAt, now)).toBe(false);
+  });
+
+  it('进行中已超时：true', () => {
+    const startedAt = 1_000;
+    const now = 1_000 + 30_000;
+    expect(isOvertime(25_000, startedAt, now)).toBe(true);
   });
 });
 

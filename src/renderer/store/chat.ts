@@ -115,6 +115,19 @@ interface ChatState {
   autoTestLatestToolLabel: string | null;
   /** 最近一次完成的耗时摘要（用于完成后聊天历史的系统消息） */
   autoTestLastSummary: AutoTestPlanSummary | null;
+  /**
+   * 测试被中断提示横幅：主进程推送 signal.type='error' 且 autoTestRunning=true 时出现，
+   * AssistantPanel 据此渲染 amber banner + 倒计时自动重试入口。
+   * - reason：信号文案（透传给用户）
+   * - retryAt：自动重试的 ms 时间戳（Date.now()+5000）
+   */
+  interruptBanner: { reason: string; retryAt: number } | null;
+  /**
+   * 最近一次「一键修复」指令发出的时间戳（ms）。
+   * 由 App.tsx 的 onSendModifyFix 在发送 buildFixInstruction/buildSingleFixInstruction 时设置。
+   * AssistantPanel 据此渲染 SuggestRetestCard（30s 窗口内 + verdict≠pass + 不在处理中时显示）。
+   */
+  lastTestFixAt: number | null;
   /** 开发进度报告（工具调用流：📝 写入 index.html 等） */
   devProgress: string[];
   currentProjectId: string | null;
@@ -146,6 +159,16 @@ interface ChatState {
   setAutoTestToolCount: (n: number) => void;
   setAutoTestLatestToolLabel: (label: string | null) => void;
   setAutoTestLastSummary: (summary: AutoTestPlanSummary | null) => void;
+  /**
+   * 设置测试中断提示横幅（reason 透传 DSH 信号文案；retryAt 为自动重试时间戳）。
+   * banner 显示期间由 AssistantPanel 内的 useEffect 倒计时触发 onAction('auto-test')。
+   */
+  setInterruptBanner: (banner: { reason: string; retryAt: number } | null) => void;
+  /**
+   * 设置最近一次"一键修复"指令时间戳；AssistantPanel 据此渲染 SuggestRetestCard。
+   * 传 null 表示「稍后」按钮主动关闭提示卡。
+   */
+  setLastTestFixAt: (ts: number | null) => void;
   resetAutoTestPlan: () => void;
   appendDevProgress: (line: string) => void;
   clearDevProgress: () => void;
@@ -183,6 +206,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   versionPlan: null,
   selectedElement: null,
   elementInfo: null,
+  interruptBanner: null,
+  lastTestFixAt: null,
 
   setProject: (id) =>
     set({
@@ -208,6 +233,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       autoTestLastSummary: null,
       autoTestExpectedDurationMs: DEFAULT_AUTO_TEST_EXPECTED_MS,
       devProgress: [],
+      interruptBanner: null,
+      lastTestFixAt: null,
     }),
   setRequirements: (req) => set({ requirements: req }),
   setProjectStatus: (status) => set({ projectStatus: status }),
@@ -227,6 +254,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setAutoTestToolCount: (n) => set({ autoTestToolCount: n }),
   setAutoTestLatestToolLabel: (label) => set({ autoTestLatestToolLabel: label }),
   setAutoTestLastSummary: (summary) => set({ autoTestLastSummary: summary }),
+  setInterruptBanner: (banner) => set({ interruptBanner: banner }),
+  setLastTestFixAt: (ts) => set({ lastTestFixAt: ts }),
   resetAutoTestPlan: () =>
     set({
       autoTestPlan: null,
@@ -236,6 +265,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       autoTestLatestToolLabel: null,
       autoTestRunning: false,
       autoTestLatestProgress: null,
+      // 同步清掉中断横幅，避免测试完成后残留旧 reason
+      interruptBanner: null,
+      // 同步清掉最近修复时间戳，避免跨次测试误导 SuggestRetestCard
+      lastTestFixAt: null,
     }),
   appendDevProgress: (line) =>
     set((s) => ({ devProgress: [...s.devProgress.slice(-40), line] })),

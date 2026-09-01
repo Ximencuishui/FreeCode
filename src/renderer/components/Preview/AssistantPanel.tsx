@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { ResumeGuide, ResumeAction } from '../../store/chat';
+import { useUiStore } from '../../store/ui';
 import type { ElementInfo, ElementSelectResult } from '@shared/types/preview';
 import type {
   StructuredTestReport,
@@ -10,9 +11,9 @@ import type {
 } from '@shared/types/project';
 import ElementInspector from './ElementInspector';
 import DevLog from '../DevLog';
-import MiniChat from '../Chat/MiniChat';
 import AutoTestPlanCard from '../Chat/AutoTestPlanCard';
 import AutoTestSummaryCard from '../Chat/AutoTestSummaryCard';
+import { formatDuration } from '../Chat/autoTestProgress';
 
 interface AssistantPanelProps {
   /** 项目进度引导（项目恢复 / 继续下一步 / 自动测试进度等） */
@@ -42,14 +43,35 @@ interface AssistantPanelProps {
   isProcessing?: boolean;
   /** 元素修改指令发送（保留兼容；当前 ElementInspector 内部已自带 MiniChat） */
   onSendModify?: (instruction: string) => void;
+  /**
+   * 测试报告「一键修复」指令发送：与 onSendModify 的语义边界
+   * - onSendModify：元素修改（ElementInspector MiniChat），不计入「修复完成时间」
+   * - onSendModifyFix：报告卡片主按钮 + 单条问题「修复」，会同步更新 chat store 的 lastTestFixAt
+   *   用于 AssistantPanel 在 AI 回复结束后渲染「建议再测一次」提示卡（30s 窗口）。
+   */
+  onSendModifyFix?: (instruction: string) => void;
+  /**
+   * 最近一次「一键修复」指令发出的时间戳（ms），传 0/null 表示无。
+   * 与 lastTestReport.verdict + autoTestRunning + isProcessing 共同决定 SuggestRetestCard 是否渲染。
+   */
+  lastTestFixAt?: number | null;
+  /** 主动关闭「建议再测一次」提示卡（用户点了「稍后」） */
+  clearSuggestRetest?: () => void;
   /** 开发日志（DSH 工具调用与结果流） */
   devProgress?: string[];
   /** 最近一次自动测试的结构化报告（用于完成态分流 + 问题清单） */
   lastTestReport?: StructuredTestReport | null;
   /** 查看完整测试报告（切到 chat 视图看报告消息） */
   onViewReport?: () => void;
-  /** 打开导出面板（用于完成态卡片的「去导出」按钮） */
-  onOpenExport?: () => void;
+  /** 打开部署面板（用于完成态卡片的「去部署」按钮） */
+  onOpenDeploy?: () => void;
+  /**
+   * 测试被中断时的 amber 横幅；reason 由 DSH 信号透传，retryAt 是自动重试时间戳。
+   * 进度 Tab 顶部按此渲染 InterruptBanner；倒计时到点后自动派发 onResumeAction('auto-test')。
+   */
+  interruptBanner?: { reason: string; retryAt: number } | null;
+  /** 主动清掉中断横幅（用户点了「取消」） */
+  clearInterruptBanner?: () => void;
   /** 外部覆盖样式：用于把父容器的可拖动宽度（width）应用到根 aside */
   style?: CSSProperties;
   /** 外部追加 className：一般不需要，但预留口子方便父级布局定制 */
@@ -60,12 +82,13 @@ type TabKey = 'progress' | 'element' | 'devlog';
 
 /**
  * AI 助理右侧面板（preview 视图）：
- * - 与 chat 视图的右侧面板结构对齐：标题 + 3-Tab + Tab 内容 + 底部 MiniChat（常驻输入框）
- * - 3-Tab：📌 进度 / 🔍 元素 / 💬 开发日志
+ * - 与 chat 视图共享同一套 AI 助理聊天浮窗（DraggableChat，由 App.tsx 全局渲染）；
+ *   切换【对话 ↔ 预览】时浮窗不卸载、不消失，位置/最小化状态/输入框内容均跨视图保持。
+ * - 标题 + 3-Tab：📌 进度 / 🔍 元素 / 💬 开发日志
  * - 选中元素 → 切到 🔍 Tab；测试进行中 / 测试刚结束 → 切到 📌 Tab；其他情况停留在用户最后选择
- * - 底部 MiniChat 始终显示（用于「看到问题 → 直接反馈」）；当用户进入 🔍 元素 Tab
- *   且已选中元素时，ElementInspector 内部已自带修改指令 MiniChat，避免重复输入框，
- *   此时隐藏面板底部 MiniChat，让用户专注在元素修改上下文里
+ * - 进入 🔍 元素 Tab 且已选中元素时，通过 ui store 通知全局 AI 助理浮窗隐藏，
+ *   避免与 ElementInspector 内部修改指令 MiniChat 形成两个输入框并存的认知负担。
+ *   离开 🔍 Tab / 取消选中元素时浮窗自动恢复显示。
  */
 export default function AssistantPanel({
   resumeGuide,
@@ -82,10 +105,15 @@ export default function AssistantPanel({
   elementInfo = null,
   isProcessing = false,
   onSendModify,
+  onSendModifyFix,
+  lastTestFixAt = null,
+  clearSuggestRetest,
   devProgress = [],
   lastTestReport = null,
   onViewReport,
-  onOpenExport,
+  onOpenDeploy,
+  interruptBanner = null,
+  clearInterruptBanner,
   style,
   className = '',
 }: AssistantPanelProps) {
@@ -154,8 +182,13 @@ export default function AssistantPanel({
     }`;
 
   // 进入 🔍 元素 Tab 且已选中元素时，ElementInspector 内部已自带修改指令 MiniChat，
-  // 此时隐藏面板底部 MiniChat，避免两个输入框同时出现造成认知负担。
-  const hideBottomChat = tab === 'element' && hasElement;
+  // 此时通过 ui store 通知全局 AI 助理浮窗隐藏，避免两个输入框同时出现造成认知负担。
+  // 切换到其他 Tab / 取消选中元素时恢复显示。
+  const setAiChatHidden = useUiStore((s) => s.setAiChatHidden);
+  const shouldHideAiChat = tab === 'element' && hasElement;
+  useEffect(() => {
+    setAiChatHidden(shouldHideAiChat);
+  }, [shouldHideAiChat, setAiChatHidden]);
 
   return (
     <aside
@@ -221,8 +254,13 @@ export default function AssistantPanel({
             pending={pending}
             onAction={act}
             onViewReport={onViewReport}
-            onOpenExport={onOpenExport}
-            onSendModify={onSendModify}
+            onOpenDeploy={onOpenDeploy}
+            onSendModifyFix={onSendModifyFix}
+            lastTestFixAt={lastTestFixAt}
+            clearSuggestRetest={clearSuggestRetest}
+            isProcessing={isProcessing}
+            interruptBanner={interruptBanner}
+            clearInterruptBanner={clearInterruptBanner}
           />
         )}
         {tab === 'element' && (
@@ -235,18 +273,6 @@ export default function AssistantPanel({
         )}
         {tab === 'devlog' && <DevLog lines={devProgress} />}
       </div>
-
-      {/* 底部 MiniChat：常驻输入框，让用户随时反馈；
-          选中元素进入 🔍 Tab 时由 ElementInspector 接管，避免重复 */}
-      {!hideBottomChat && (
-        <div className="shrink-0 border-t border-slate-200 bg-slate-100/70 p-3">
-          <MiniChat
-            placeholder="和 AI 聊聊，比如：标题颜色太深 / 继续开发 / 登录那块逻辑有问题…"
-            marqueeOnProcessing
-            marqueeText={autoTestRunning ? '🧪 测试中…' : 'AI 正在处理中'}
-          />
-        </div>
-      )}
     </aside>
   );
 }
@@ -267,8 +293,13 @@ function ProgressTab({
   pending,
   onAction,
   onViewReport,
-  onOpenExport,
-  onSendModify,
+  onOpenDeploy,
+  onSendModifyFix,
+  lastTestFixAt,
+  clearSuggestRetest,
+  isProcessing,
+  interruptBanner,
+  clearInterruptBanner,
 }: {
   resumeGuide: ResumeGuide | null;
   autoTestRunning: boolean;
@@ -283,21 +314,49 @@ function ProgressTab({
   pending: ResumeAction | null;
   onAction: (a: ResumeAction) => void;
   onViewReport?: () => void;
-  onOpenExport?: () => void;
-  onSendModify?: (instruction: string) => void;
+  onOpenDeploy?: () => void;
+  onSendModifyFix?: (instruction: string) => void;
+  lastTestFixAt: number | null;
+  clearSuggestRetest?: () => void;
+  isProcessing: boolean;
+  interruptBanner: { reason: string; retryAt: number } | null;
+  clearInterruptBanner?: () => void;
 }) {
+  // 修复完成衔接：测试未在跑 + 有报告 + verdict≠pass + 最近 30 秒内有修复指令 + AI 不在处理中
+  // 提示卡显示在 InterruptBanner 之下、TestReportCard 之上，确保用户先看得到「要不要再测一次」
+  const showSuggestRetest = shouldShowSuggestRetest({
+    autoTestRunning,
+    lastTestReport,
+    lastTestFixAt,
+    isProcessing,
+  });
+
   // 测试完成态：autoTestRunning=false 且存在结构化报告时优先展示 ✅/⚠️/❌ 完成态
   if (!autoTestRunning && lastTestReport) {
     return (
       <div className="space-y-3">
+        {interruptBanner && (
+          <InterruptBanner
+            banner={interruptBanner}
+            onRetry={() => onAction('auto-test')}
+            onCancel={clearInterruptBanner ?? (() => undefined)}
+          />
+        )}
+        {showSuggestRetest && lastTestFixAt && (
+          <SuggestRetestCard
+            lastTestFixAt={lastTestFixAt}
+            onAction={onAction}
+            onClear={clearSuggestRetest ?? (() => undefined)}
+          />
+        )}
         <TestReportCard
           report={lastTestReport}
           resumeGuide={resumeGuide}
           pending={pending}
           onAction={onAction}
           onViewReport={onViewReport}
-          onOpenExport={onOpenExport}
-          onSendModify={onSendModify}
+          onOpenDeploy={onOpenDeploy}
+          onSendModifyFix={onSendModifyFix}
         />
         {autoTestLastSummary && (
           <AutoTestSummaryCard
@@ -321,6 +380,13 @@ function ProgressTab({
   const buttons = resumeGuide.actions && resumeGuide.actions.length > 0 ? resumeGuide.actions : null;
   return (
     <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-slate-700">
+      {interruptBanner && (
+        <InterruptBanner
+          banner={interruptBanner}
+          onRetry={() => onAction('auto-test')}
+          onCancel={clearInterruptBanner ?? (() => undefined)}
+        />
+      )}
       <p className="font-medium text-amber-800">📌 欢迎回来，{resumeGuide.projectName}</p>
       <p className="mt-0.5 text-amber-700/90">
         {resumeGuide.action === 'none' ? '目前进度：' : '项目进度：'}
@@ -419,6 +485,186 @@ function ElementTab({
   );
 }
 
+/* ========== 测试被中断横幅（amber banner + 5s 自动重试倒计时） ========== */
+
+interface InterruptBannerProps {
+  banner: { reason: string; retryAt: number };
+  onRetry: () => void;
+  onCancel: () => void;
+}
+
+/**
+ * 自动测试被中断时的 amber 横幅：
+ * - 倒计时到 retryAt 后自动 onRetry() 触发 auto-test 重跑
+ * - 用户点「立即重试」→ onRetry()
+ * - 用户点「取消」→ onCancel()（清掉 banner）
+ *
+ * 设计要点：
+ * - 用 useEffect + ref 追踪最新 onRetry，避免父组件传入新引用导致 stale closure
+ * - 显示前先检查 banner 仍存在（防止 stale timer 在 banner 已清掉的情况下误触发）
+ */
+export function InterruptBanner({ banner, onRetry, onCancel }: InterruptBannerProps) {
+  // 注：hooks 必须无条件调用，避免 rules-of-hooks 报错。
+  // banner 已清掉的情况下，副作用 effect 通过 if (!banner) return 提前退出；渲染本身交给父组件条件挂载。
+
+  // 每秒刷新倒计时；卸载或 banner 变化时清掉旧 interval
+  const [, setTick] = useState(0);
+  const onRetryRef = useRef(onRetry);
+  onRetryRef.current = onRetry;
+  const bannerRef = useRef(banner);
+  bannerRef.current = banner;
+
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), 1_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (!banner) return;
+    const delay = Math.max(0, banner.retryAt - Date.now());
+    const id = window.setTimeout(() => {
+      // 触发前再次校验 banner 仍存在（防止 stale timer）
+      if (bannerRef.current) onRetryRef.current();
+    }, delay);
+    return () => window.clearTimeout(id);
+  }, [banner]);
+
+  if (!banner) return null;
+
+  const remainingMs = Math.max(0, banner.retryAt - Date.now());
+  return (
+    <div
+      data-testid="fc-assistant-interrupt-banner"
+      className="mb-2.5 rounded-xl border border-amber-400 bg-amber-100/80 px-3 py-2 text-xs text-amber-900 animate-fadeIn"
+      role="alert"
+    >
+      <p className="font-medium">⚠️ 测试被中断</p>
+      <p className="mt-0.5 text-amber-800/90">{banner.reason}</p>
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded bg-amber-500 px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-amber-600"
+          data-testid="fc-assistant-interrupt-retry"
+        >
+          立即重试
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-200"
+          data-testid="fc-assistant-interrupt-cancel"
+        >
+          取消
+        </button>
+        <span
+          className="ml-auto tabular-nums text-[11px] text-amber-700/80"
+          data-testid="fc-assistant-interrupt-countdown"
+        >
+          {formatDuration(remainingMs)} 后自动重试
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ========== 修复完成衔接：建议再测一次提示卡 ========== */
+
+const SUGGEST_RETEST_WINDOW_MS = 30_000;
+
+/**
+ * 修复完成衔接提示卡的渲染条件（纯函数，便于单测覆盖所有分支）：
+ * - 测试没在跑
+ * - 有结构化测试报告
+ * - verdict 不是 pass（pass 时引导用户去导出即可，无须再测）
+ * - 最近 30 秒内触发过「一键修复」指令（lastTestFixAt 非 0）
+ * - AI 没在处理中（避免 AI 还在改代码时就跳出来打断）
+ */
+export function shouldShowSuggestRetest(args: {
+  autoTestRunning: boolean;
+  lastTestReport: StructuredTestReport | null;
+  lastTestFixAt: number | null;
+  isProcessing: boolean;
+  now?: number;
+}): boolean {
+  const now = args.now ?? Date.now();
+  const fixAt = args.lastTestFixAt ?? 0;
+  return (
+    !args.autoTestRunning &&
+    !!args.lastTestReport &&
+    args.lastTestReport.verdict !== 'pass' &&
+    fixAt > 0 &&
+    now - fixAt < SUGGEST_RETEST_WINDOW_MS &&
+    !args.isProcessing
+  );
+}
+
+interface SuggestRetestCardProps {
+  /** 最近一次「一键修复」指令发出的时间戳（ms）。组件内部据此渲染剩余倒计时 */
+  lastTestFixAt: number;
+  /** 点击「立即再测」触发 auto-test */
+  onAction: (a: ResumeAction) => void;
+  /** 关闭提示卡（用户点了「稍后」或 30s 倒计时到期），由父组件清掉 lastTestFixAt */
+  onClear: () => void;
+}
+
+/**
+ * 「代码已修复完毕，要不要再跑一次测试？」提示卡。
+ * - 仅在父组件满足条件时渲染（本组件不做 verdict / 修复窗口检查，由 ProgressTab 决策）
+ * - 1s 定时器：剩余倒计时刷新 + 30s 窗口过期时主动调 onClear
+ * - useEffect 依赖 lastTestFixAt：用户连续触发新修复时重启 interval
+ */
+export function SuggestRetestCard({ lastTestFixAt, onAction, onClear }: SuggestRetestCardProps) {
+  const onClearRef = useRef(onClear);
+  onClearRef.current = onClear;
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const elapsed = Date.now() - lastTestFixAt;
+      if (elapsed >= SUGGEST_RETEST_WINDOW_MS) {
+        onClearRef.current();
+      } else {
+        setTick((t) => t + 1);
+      }
+    }, 1_000);
+    return () => window.clearInterval(id);
+  }, [lastTestFixAt]);
+
+  const remainingMs = Math.max(0, SUGGEST_RETEST_WINDOW_MS - (Date.now() - lastTestFixAt));
+  return (
+    <div
+      data-testid="fc-assistant-suggest-retest"
+      className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-slate-700 animate-fadeIn"
+      role="status"
+    >
+      <p className="font-medium text-amber-800">✅ 代码已修复完毕</p>
+      <p className="mt-0.5 text-amber-700/90">要不要再跑一次测试，确认问题已修复？</p>
+      <div className="mt-2 flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => onAction('auto-test')}
+          className="rounded bg-amber-500 px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-amber-600"
+          data-testid="fc-assistant-suggest-retest-now"
+        >
+          🧪 立即再测
+        </button>
+        <button
+          type="button"
+          onClick={onClear}
+          className="rounded bg-amber-100 px-2.5 py-1 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-200"
+          data-testid="fc-assistant-suggest-retest-later"
+        >
+          稍后
+        </button>
+        <span className="ml-auto tabular-nums text-[11px] text-amber-700/80">
+          {formatDuration(remainingMs)} 后自动隐藏
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /* ========== 测试完成态：差异化卡片（pass/warn/block） ========== */
 
 interface TestReportCardProps {
@@ -427,8 +673,9 @@ interface TestReportCardProps {
   pending: ResumeAction | null;
   onAction: (a: ResumeAction) => void;
   onViewReport?: () => void;
-  onOpenExport?: () => void;
-  onSendModify?: (instruction: string) => void;
+  onOpenDeploy?: () => void;
+  /** 「一键修复」指令发送：仅用于本卡片的修复按钮，与元素修改的 onSendModify 语义隔离 */
+  onSendModifyFix?: (instruction: string) => void;
 }
 
 /**
@@ -436,15 +683,17 @@ interface TestReportCardProps {
  * - pass：绿 + 「去导出」主推 + 「再测一次」次推
  * - warn：黄 + 「帮我修」主推 + 「再测一次 / 直接导出」次推
  * - block：红 + 「一键修复」主推 + 「再测一次」次推 + 「导出」disabled
+ *
+ * 注意：单独 export 出来，便于单测直接断言 fadeIn / badgePop 类是否挂上。
  */
-function TestReportCard({
+export function TestReportCard({
   report,
   resumeGuide,
   pending,
   onAction,
   onViewReport,
-  onOpenExport,
-  onSendModify,
+  onOpenDeploy,
+  onSendModifyFix,
 }: TestReportCardProps) {
   const v = report.verdict;
   const issues = [...(report.issues ?? [])].sort(
@@ -459,29 +708,29 @@ function TestReportCard({
 
   // 主按钮文案 + 动作（只 push 到对话，不直接修改代码；AI 自己在对话里完成修复）
   const primaryLabel = (() => {
-    if (v === 'pass') return onOpenExport ? '✅ 没问题，去导出 →' : '✅ 测试通过';
+    if (v === 'pass') return onOpenDeploy ? '✅ 没问题，去部署 →' : '✅ 测试通过';
     if (v === 'warn') {
       const total = issues.length;
-      return onSendModify && total > 0
+      return onSendModifyFix && total > 0
         ? `🔧 帮我修这些问题（${total}）`
         : '⚠️ 忽略问题，继续';
     }
     // block
-    return onSendModify && highCount > 0
+    return onSendModifyFix && highCount > 0
       ? `🔧 一键修复（${highCount} 个阻塞）`
       : '⚠️ 暂时无法上线';
   })();
   const primaryAction: 'export' | 'fix' | 'retry' | 'ignore' = (() => {
     if (v === 'pass') return 'export';
-    if (v === 'warn') return onSendModify && issues.length > 0 ? 'fix' : 'ignore';
-    return onSendModify && highCount > 0 ? 'fix' : 'retry';
+    if (v === 'warn') return onSendModifyFix && issues.length > 0 ? 'fix' : 'ignore';
+    return onSendModifyFix && highCount > 0 ? 'fix' : 'retry';
   })();
 
   const onPrimary = () => {
     if (primaryAction === 'export') {
-      onOpenExport?.();
+      onOpenDeploy?.();
     } else if (primaryAction === 'fix') {
-      onSendModify?.(buildFixInstruction(report));
+      onSendModifyFix?.(buildFixInstruction(report));
     } else if (primaryAction === 'ignore') {
       // warn 且没有修复入口：主按钮退化为「继续」语义，复用 auto-test 重新跑一遍
       onAction('auto-test');
@@ -494,7 +743,7 @@ function TestReportCard({
 
   return (
     <div
-      className={`rounded-xl border ${palette.card} px-4 py-3 text-sm leading-relaxed text-slate-700`}
+      className={`rounded-xl border ${palette.card} animate-fadeIn motion-safe:animate-fadeIn motion-reduce:opacity-100 px-4 py-3 text-sm leading-relaxed text-slate-700`}
       data-testid="auto-test-report-card"
       data-verdict={v}
     >
@@ -503,7 +752,8 @@ function TestReportCard({
         <span className="text-base">{palette.icon}</span>
         <p className={`font-medium ${palette.title}`}>测试已完成</p>
         <span
-          className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-medium ${palette.badge}`}
+          className={`ml-auto origin-right rounded-full px-2 py-0.5 text-[11px] font-medium motion-safe:animate-badgePop ${palette.badge}`}
+          data-testid="auto-test-verdict-badge"
         >
           {report.verdictLabel ?? defaultVerdictLabel(v)}
         </span>
@@ -534,7 +784,7 @@ function TestReportCard({
                 key={`${issue.severity}-${idx}`}
                 issue={issue}
                 onFix={
-                  onSendModify ? () => onSendModify(buildSingleFixInstruction(issue)) : undefined
+                  onSendModifyFix ? () => onSendModifyFix(buildSingleFixInstruction(issue)) : undefined
                 }
               />
             ))}
@@ -564,20 +814,20 @@ function TestReportCard({
         >
           🧪 再测一次
         </button>
-        {onOpenExport && (
+        {onOpenDeploy && (
           <button
             type="button"
             disabled={exportDisabled || pending !== null}
-            onClick={() => onOpenExport()}
+            onClick={() => onOpenDeploy()}
             title={
               exportDisabled
-                ? `还有 ${highCount} 个高严重度问题，先修复再导出`
-                : '打开导出面板'
+                ? `还有 ${highCount} 个高严重度问题，先修复再部署`
+                : '打开部署面板'
             }
             className="flex-1 rounded-lg bg-slate-200 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-300 disabled:cursor-not-allowed disabled:opacity-60"
-            data-testid="auto-test-export"
+            data-testid="auto-test-deploy"
           >
-            📦 去导出
+            📦 去部署
           </button>
         )}
       </div>

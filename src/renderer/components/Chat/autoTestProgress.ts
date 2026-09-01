@@ -62,8 +62,16 @@ export function formatDuration(ms: number): string {
 
 /**
  * 估算剩余时间（毫秒）。
- * - 已完成测试：返回 0
- * - 进行中：expected - elapsed，最低 0
+ *
+ * - 已完成测试：固定返回 0
+ * - 未提供开始时间：返回期望总时长（首次渲染）
+ * - 进行中：返回 `expected - elapsed`
+ *   - 正数：仍在预期窗口内
+ *   - 0：恰好到期
+ *   - **负数：已超出预估**（测试实际比预估更久，调用方需渲染「已超出预估 X 秒」）
+ *
+ * 注意：本函数**不再 clamp 到 0**，避免出现「已用时 55 秒 / 预计还需 0 秒」的
+ * 反直觉提示——会让用户误以为测试马上要结束，但 LLM 还在跑工具调用。
  */
 export function estimateRemainingMs(
   expectedDurationMs: number,
@@ -74,7 +82,18 @@ export function estimateRemainingMs(
   if (finished) return 0;
   if (!startedAt) return expectedDurationMs;
   const elapsed = now - startedAt;
-  return Math.max(0, expectedDurationMs - elapsed);
+  return expectedDurationMs - elapsed;
+}
+
+/** 是否处于「已超出预估」状态（进行中且剩余时间为负）。 */
+export function isOvertime(
+  expectedDurationMs: number,
+  startedAt: number | null,
+  now: number = Date.now(),
+  finished = false,
+): boolean {
+  if (finished || !startedAt) return false;
+  return expectedDurationMs - (now - startedAt) < 0;
 }
 
 /** 计划进度百分比（0-100）。 */

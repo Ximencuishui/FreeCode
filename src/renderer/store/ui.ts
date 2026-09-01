@@ -1,9 +1,7 @@
-/**
- * UI 状态：当前视图（对话 / 预览）、API Key 配置弹窗、API 配置状态。
- */
+/** UI 状态：当前主工作区、API Key 配置弹窗、API 配置状态。 */
 import { create } from 'zustand';
 
-export type AppView = 'chat' | 'preview';
+export type AppView = 'chat' | 'preview' | 'documents';
 
 interface UiState {
   currentView: AppView;
@@ -20,6 +18,13 @@ interface UiState {
   /** 是否已配置大模型 API（null = 尚未从主进程加载） */
   apiKeyConfigured: boolean | null;
   setApiKeyConfigured: (v: boolean) => void;
+  /**
+   * AI 助理聊天浮窗是否隐藏（preview 视图选中元素进入 🔍 Tab 时由 AssistantPanel 设置），
+   * 避免和 ElementInspector 内嵌的修改指令 MiniChat 形成两个输入框并存的认知负担。
+   * 跨视图（chat ↔ preview）持久：切回 chat 视图应保持当前隐藏状态。
+   */
+  aiChatHidden: boolean;
+  setAiChatHidden: (v: boolean) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -32,4 +37,6 @@ export const useUiStore = create<UiState>((set) => ({
   closeSettings: () => set({ settingsOpen: false, inviteMode: false }),
   apiKeyConfigured: null,
   setApiKeyConfigured: (v) => set({ apiKeyConfigured: v }),
+  aiChatHidden: false,
+  setAiChatHidden: (v) => set({ aiChatHidden: v }),
 }));

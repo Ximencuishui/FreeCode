@@ -22,6 +22,7 @@ export function useChatEvents(): void {
   const setAutoTestToolCount = useChatStore((s) => s.setAutoTestToolCount);
   const setAutoTestLatestToolLabel = useChatStore((s) => s.setAutoTestLatestToolLabel);
   const setAutoTestLastSummary = useChatStore((s) => s.setAutoTestLastSummary);
+  const setInterruptBanner = useChatStore((s) => s.setInterruptBanner);
   const resetAutoTestPlan = useChatStore((s) => s.resetAutoTestPlan);
 
   useEffect(() => {
@@ -138,11 +139,21 @@ export function useChatEvents(): void {
       });
       // 开发任务失败信号：复位"开发中"状态并清空进度，引导卡回到"是否继续"，允许重试
       if (signal.type === 'error') {
+        const state = useChatStore.getState();
+        // 自动测试进行中被中断：弹 amber banner 给用户提供 5s 自动重试入口
+        // （区别于开发任务失败 → 走 reset 路径让用户从 ResumeGuide 重新触发）
+        // 注意：reset 路径会把 interruptBanner 也清掉，所以 banner 必须在 reset 之后设置
         setDevTaskRunning(false);
         setAutoTestRunning(false);
         setAutoTestLatestProgress(null);
         clearDevProgress();
         resetAutoTestPlan();
+        if (state.autoTestRunning) {
+          setInterruptBanner({
+            reason: signal.message,
+            retryAt: Date.now() + 5_000,
+          });
+        }
       }
     });
 
@@ -168,6 +179,7 @@ export function useChatEvents(): void {
     setAutoTestToolCount,
     setAutoTestLatestToolLabel,
     setAutoTestLastSummary,
+    setInterruptBanner,
     resetAutoTestPlan,
   ]);
 }

@@ -4,20 +4,21 @@ interface StepFlowProps {
   status: ProjectStatus | null;
   onGoChat: () => void;
   onGoPreview: () => void;
-  onGoExport: () => void;
 }
 
-/** 主流程步骤条：创建项目 → 方案探讨 → 版本分段 → 生成代码 → 预览调整 → 导出 */
+/** 主流程步骤条：创建项目 → 方案探讨 → 版本分段 → 生成代码 → 预览调整
+ * （"导出"已挪到顶部 header 中间 Tab，不再作为流程阶段展示）
+ */
 const STEPS = [
   { key: 'create', label: '创建项目' },
   { key: 'discuss', label: '方案探讨' },
   { key: 'plan', label: '版本分段' },
   { key: 'code', label: '生成代码' },
   { key: 'preview', label: '预览调整' },
-  { key: 'export', label: '导出' },
 ] as const;
 
-/** 各状态对应的当前步骤下标（draft=方案探讨，planned=版本分段，developing=生成代码…） */
+/** 各状态对应的当前步骤下标（draft=方案探讨，planned=版本分段，developing=生成代码…）。
+ * 导出完成后保持在"预览调整"步骤（导出是动作而非流程阶段）。 */
 function currentIndex(status: ProjectStatus | null): number {
   switch (status) {
     case 'draft':
@@ -27,22 +28,20 @@ function currentIndex(status: ProjectStatus | null): number {
     case 'developing':
       return 3;
     case 'ready':
-      return 4;
     case 'exported':
-      return 5;
+      return 4;
     default:
       return 0;
   }
 }
 
-export default function StepFlow({ status, onGoChat, onGoPreview, onGoExport }: StepFlowProps) {
+export default function StepFlow({ status, onGoChat, onGoPreview }: StepFlowProps) {
   const active = currentIndex(status);
 
   const handleClick = (index: number) => {
-    // 步骤 0-3（创建/探讨/分段/写代码）都在对话中完成；4 去预览；5 打开导出
+    // 步骤 0-3（创建/探讨/分段/写代码）都在对话中完成；4 去预览
     if (index <= 3) onGoChat();
-    else if (index === 4) onGoPreview();
-    else onGoExport();
+    else onGoPreview();
   };
 
   return (

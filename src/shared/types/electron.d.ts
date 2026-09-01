@@ -39,6 +39,12 @@ import type {
   ProjectAutoTestResult,
   ProjectConvertToLocalModeParams,
   ProjectConvertToLocalModeResult,
+  ProjectDocumentListParams,
+  ProjectDocumentListResult,
+  ProjectDocumentReadParams,
+  ProjectDocumentReadResult,
+  ProjectOpenAssetParams,
+  ProjectOpenAssetResult,
 } from './project';
 import type { ExportStartParams, ExportStartResult, ExportCompleteEvent } from './export';
 import type {
@@ -62,7 +68,7 @@ type Unsubscribe = () => void;
 
 /**
  * preload 通过 contextBridge 暴露到渲染进程的全局 API（`window.electron`）。
- * 类型与《FreeCoder API 接口设计文档》v1.3 的 25 个通道一一对应。
+ * 类型与《FreeCoder API 接口设计文档》v1.3 的 IPC 通道一一对应。
  */
 declare global {
   interface Window {
@@ -109,6 +115,12 @@ declare global {
         convertToLocalMode: (
           params: ProjectConvertToLocalModeParams,
         ) => Promise<ProjectConvertToLocalModeResult>;
+        /** 扫描当前项目的 Markdown 文档与常见图片素材 */
+        listDocuments: (params: ProjectDocumentListParams) => Promise<ProjectDocumentListResult>;
+        /** 读取一个已发现的文档或图片素材 */
+        readDocument: (params: ProjectDocumentReadParams) => Promise<ProjectDocumentReadResult>;
+        /** 用系统默认应用打开一个项目内的图片素材（主进程校验路径仍在项目目录内） */
+        openAsset: (params: ProjectOpenAssetParams) => Promise<ProjectOpenAssetResult>;
       };
       export: {
         start: (params: ExportStartParams) => Promise<ExportStartResult>;

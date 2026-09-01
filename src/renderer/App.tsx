@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import Sidebar from './components/Sidebar';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import ProjectSwitcher from './components/ProjectSwitcher';
-import MiniChat from './components/Chat/MiniChat';
+import DraggableChat from './components/Chat/DraggableChat';
 import AssistantPanel from './components/Preview/AssistantPanel';
 import ChatContainer from './components/Chat/ChatContainer';
 import ProjectWelcome from './components/ProjectWelcome';
+import DocumentDirectory from './components/Documents/DocumentDirectory';
+import DocumentViewer from './components/Documents/DocumentViewer';
 import PreviewContainer from './components/Preview/PreviewContainer';
 import RequirementCard from './components/Chat/RequirementCard';
 import VersionPlanCard from './components/Chat/VersionPlanCard';
-import ExportPanel from './components/Export/ExportPanel';
+import DeployPanel from './components/Export/DeployPanel';
 import ApiKeyModal from './components/ApiKeyModal';
 import Logo from './components/Logo';
 import StepFlow from './components/StepFlow';
@@ -22,25 +23,115 @@ import type { AppSettings } from '@shared/types/settings';
 import type { VersionPlan, RequirementSummary } from '@shared/types/project';
 
 /** 主界面：三栏式布局（前端设计说明书 2.1） */
+// 视图切换 Tab：原左侧菜单的【对话】【预览】【部署】挪到顶部 header 中间位置。
+// - chat / preview 走 setView 切视图；
+// - deploy 不属于视图，单独触发部署弹窗（智能部署向导）。
+const VIEW_TABS = [
+  { key: 'chat', icon: '💬', label: '对话' },
+  { key: 'preview', icon: '🔍', label: '预览' },
+  { key: 'documents', icon: '📚', label: '文档' },
+  { key: 'deploy', icon: '🚀', label: '部署' },
+] as const;
+
+// 右侧面板持久化 key + 尺寸边界常量
+const RIGHT_WIDTH_KEY = 'freecoder.rightPanelWidth';
+const RIGHT_COLLAPSED_KEY = 'freecoder.rightPanelCollapsed';
+const RIGHT_MIN = 220;
+const RIGHT_MAX = 520;
+const RIGHT_DEFAULT = 288;
+// 窄屏阈值：低于该宽度时改为抽屉（drawer）模式，避免挤压主区
+const NARROW_THRESHOLD = 720;
+
+/** 从 localStorage 读取上次保存的右侧面板宽度（带 fallback + clamp） */
+const readStoredWidth = (): number => {
+  try {
+    const saved = localStorage.getItem(RIGHT_WIDTH_KEY);
+    if (saved) {
+      const n = Number(saved);
+      if (Number.isFinite(n)) return Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, n));
+    }
+  } catch {
+    /* 隐私模式等：直接走默认值 */
+  }
+  return RIGHT_DEFAULT;
+};
+
 export default function App() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   /** 需求审查发现矛盾后为 true：卡片显示"跳过审查"逃生口 */
   const [reviewPending, setReviewPending] = useState(false);
-  /** 右侧面板宽度（可拖动分隔条调整，默认 288px = w-72）；仅 chat 视图使用 */
-  const [rightWidth, setRightWidth] = useState(288);
+  /** 文档主工作区当前选中的项目相对路径 */
+  const [selectedDocumentPath, setSelectedDocumentPath] = useState<string | null>(null);
+  const selectDocument = useCallback((path: string) => setSelectedDocumentPath(path), []);
+  /** 右侧面板宽度（拖动分隔条调整，220~520px，默认 288px）；持久化到 localStorage */
+  const [rightWidth, setRightWidthState] = useState<number>(readStoredWidth);
+  /** 右侧面板是否折叠（双击分隔条切换）；持久化到 localStorage */
+  const [rightCollapsed, setRightCollapsedState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(RIGHT_COLLAPSED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  /** 窄屏抽屉是否打开（仅 NARROW_THRESHOLD 以下生效） */
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  /** 切换主工作区时关闭窄屏抽屉，避免带入其他工作区的旧内容 */
+  /** 窗口宽度（监听 resize，低于阈值时切抽屉模式） */
+  const [windowWidth, setWindowWidth] = useState<number>(() => window.innerWidth);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
-  /** 拖动分隔条：左右拖动调整预览区/右侧面板宽度（预览窗口可向左拖动放大） */
+  /** 写入宽度：clamp 后同步到 localStorage */
+  const setRightWidth = useCallback((w: number) => {
+    const clamped = Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, w));
+    setRightWidthState(clamped);
+    try {
+      localStorage.setItem(RIGHT_WIDTH_KEY, String(clamped));
+    } catch {
+      /* 隐私模式或存储满：忽略 */
+    }
+  }, []);
+
+  /** 写入折叠状态：持久化 */
+  const setRightCollapsed = useCallback((c: boolean) => {
+    setRightCollapsedState(c);
+    try {
+      localStorage.setItem(RIGHT_COLLAPSED_KEY, c ? '1' : '0');
+    } catch {
+      /* 忽略 */
+    }
+  }, []);
+
+  const toggleCollapsed = useCallback(() => {
+    setRightCollapsed(!rightCollapsed);
+  }, [rightCollapsed, setRightCollapsed]);
+
+  // 监听窗口尺寸，决定走"嵌入面板"还是"抽屉"布局
+  useEffect(() => {
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const isNarrow = windowWidth < NARROW_THRESHOLD;
+
+  // 窗口变宽自动关闭抽屉（避免抽屉开着覆盖已经能放下的右侧面板）
+  useEffect(() => {
+    if (!isNarrow && drawerOpen) setDrawerOpen(false);
+  }, [isNarrow, drawerOpen]);
+
+  /** 拖动分隔条：左右拖动调整预览区/右侧面板宽度。折叠态下拖动会自动展开。 */
   const startResize = (e: ReactMouseEvent<HTMLDivElement>) => {
     e.preventDefault();
+    // 折叠态下拖动 → 自动展开，避免出现"拖动无效"的迷惑
+    if (rightCollapsed) setRightCollapsed(false);
     dragRef.current = { startX: e.clientX, startWidth: rightWidth };
     const onMove = (ev: MouseEvent) => {
       const d = dragRef.current;
       if (!d) return;
       // 向右拖 → 面板变窄、预览变宽；向左拖 → 面板变宽、预览变窄
       const next = d.startWidth + (d.startX - ev.clientX);
-      setRightWidth(Math.min(520, Math.max(220, next)));
+      setRightWidth(next);
     };
     const onUp = () => {
       dragRef.current = null;
@@ -57,8 +148,17 @@ export default function App() {
   const currentProjectId = useProjectStore((s) => s.currentProjectId);
   const projects = useProjectStore((s) => s.projects);
   const loadProjects = useProjectStore((s) => s.loadProjects);
+  /** 切换项目时清空旧项目的文档选择，目录重新扫描后自动选中首项 */
+  useEffect(() => {
+    setSelectedDocumentPath(null);
+  }, [currentProjectId]);
   const currentView = useUiStore((s) => s.currentView);
   const setView = useUiStore((s) => s.setView);
+  // 切换主工作区时关闭窄屏抽屉；按钮本身只改变抽屉状态，不触发视图切换
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [currentView]);
+  const aiChatHidden = useUiStore((s) => s.aiChatHidden);
   const requirements = useChatStore((s) => s.requirements);
   const projectStatus = useChatStore((s) => s.projectStatus);
   const versionPlan = useChatStore((s) => s.versionPlan);
@@ -81,12 +181,42 @@ export default function App() {
   const autoTestLastSummary = useChatStore((s) => s.autoTestLastSummary);
   const devProgress = useChatStore((s) => s.devProgress);
   const lastTestReport = useChatStore((s) => s.lastTestReport);
+  const interruptBanner = useChatStore((s) => s.interruptBanner);
+  const lastTestFixAt = useChatStore((s) => s.lastTestFixAt);
+  const clearInterruptBanner = useCallback(
+    () => useChatStore.getState().setInterruptBanner(null),
+    [],
+  );
+  /**
+   * 「一键修复」修复完成衔接：发送指令前先记录时间戳，
+   * AssistantPanel 据此在 30s 窗口内 + verdict≠pass + 不在处理中时显示「建议再测一次」提示卡。
+   * 与 `onSendModify` 的语义边界：onSendModify 给元素修改（ElementInspector），不计入修复时间。
+   */
+  const onSendModifyFix = useCallback(
+    (instruction: string): void => {
+      useChatStore.getState().setLastTestFixAt(Date.now());
+      void sendMessage(instruction);
+    },
+    [sendMessage],
+  );
+  /** 关闭「建议再测一次」提示卡（用户点了「稍后」），等价于清空 lastTestFixAt。 */
+  const clearSuggestRetest = useCallback(
+    () => useChatStore.getState().setLastTestFixAt(null),
+    [],
+  );
   const apiKeyConfigured = useUiStore((s) => s.apiKeyConfigured);
   const setApiKeyConfigured = useUiStore((s) => s.setApiKeyConfigured);
   const openSettings = useUiStore((s) => s.openSettings);
   const openInvite = useUiStore((s) => s.openInvite);
-  const openExport = useExportStore((s) => s.open);
+  const openDeploy = useExportStore((s) => s.open); // v3.2：原 openExport 已统一为「打开部署向导」
   useChatEvents();
+
+  // 离开预览元素检查器后恢复 AI 浮窗，避免切换到文档工作区时被旧状态隐藏
+  useEffect(() => {
+    if (currentView !== 'preview') {
+      useUiStore.getState().setAiChatHidden(false);
+    }
+  }, [currentView]);
 
   // 订阅导出完成事件
   useEffect(() => {
@@ -319,15 +449,25 @@ export default function App() {
             actionText: '🧪 再测一次',
           };
         }
+        // 未出过结构化报告：用户可能从未点过测试，也可能上次点击后被中断。
+        // - 仍在跑（autoTestRunning=true）：按钮换成「测试未完成，继续」，避免误导用户
+        //   重复触发；同时 phaseText 引导去右上方 📌 进度 Tab 看实时步骤
+        // - 未在跑：首次或可重新开始的入口，保持原文案
+        const testInProgress = autoTestRunning;
         return {
           projectId: currentProjectId,
           projectName: name,
-          phaseText: '应用已就绪，正在预览。选择下面的方式开始测试吧：',
+          phaseText: testInProgress
+            ? '自动测试还在进行中，右侧 📌 进度 Tab 可看实时步骤与耗时。点下面的按钮可继续触发。'
+            : '应用已就绪，正在预览。选择下面的方式开始测试吧：',
           action: 'none',
           actionText: '',
           actions: [
             { action: 'open-browser', label: '🌐 用浏览器打开看看效果' },
-            { action: 'auto-test', label: '🧪 已经 ok，请帮我测试' },
+            {
+              action: 'auto-test',
+              label: testInProgress ? '🧪 测试未完成，继续' : '🧪 已经 ok，请帮我测试',
+            },
           ],
         };
       }
@@ -415,6 +555,7 @@ export default function App() {
     devTaskRunning,
     currentView,
     lastTestReport,
+    autoTestRunning,
   ]);
 
   /** 构建"浏览器测试引导"发言（模板 + 需求关键流程） */
@@ -500,18 +641,132 @@ ${steps}
     }
   };
 
+  /**
+   * 渲染右侧面板：
+   * - 宽屏（isNarrow=false）：嵌入主区 + 可拖动分隔条 + 双击分隔条折叠/展开；
+   * - 窄屏（isNarrow=true）：右侧面板改为 fixed 浮动抽屉，需要时通过浮动按钮打开。
+   * chat / preview 两个视图都通过这个函数渲染，避免重复实现"分隔条 + 折叠"与"抽屉"两套 UI。
+   */
+  const renderRightPanel = (
+    asideContent: ReactNode,
+    panelLabel: string,
+    drawerLabel: string,
+    drawerTitle: string,
+  ) => {
+    if (isNarrow) {
+      return (
+        <>
+          {/* 浮动按钮：fixed 在主区域右上，点击展开抽屉 */}
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            className="fixed right-4 top-16 z-30 flex items-center gap-1 rounded-full bg-brand px-3 py-1.5 text-xs font-medium text-white shadow-lg transition-colors hover:bg-brand-hover"
+          >
+            <span>{drawerLabel}</span>
+          </button>
+          {/* 抽屉覆盖层：半透明遮罩 + 右侧抽屉面板 */}
+          {drawerOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-40 bg-black/30"
+                onClick={() => setDrawerOpen(false)}
+              />
+              <aside
+                aria-label={panelLabel}
+                className="fixed right-0 top-0 z-50 flex h-full w-80 max-w-[85vw] flex-col bg-slate-50 shadow-xl"
+              >
+                <header className="flex h-10 shrink-0 items-center justify-between border-b border-slate-200 px-4">
+                  <span className="text-sm font-medium text-slate-700">{drawerTitle}</span>
+                  <button
+                    type="button"
+                    onClick={() => setDrawerOpen(false)}
+                    className="text-slate-400 hover:text-slate-600"
+                    aria-label="关闭"
+                  >
+                    ✕
+                  </button>
+                </header>
+                <div className="min-h-0 flex-1 overflow-y-auto p-4">{asideContent}</div>
+              </aside>
+            </>
+          )}
+        </>
+      );
+    }
+    // 宽屏：嵌入模式（可拖动分隔条 + 双击折叠）
+    const collapsed = rightCollapsed;
+    return (
+      <>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          title="拖动调整宽度；双击折叠/展开"
+          onMouseDown={startResize}
+          onDoubleClick={toggleCollapsed}
+          className="group relative w-1.5 shrink-0 cursor-col-resize"
+        >
+          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-slate-200 transition-colors group-hover:bg-brand group-active:bg-brand" />
+          {collapsed && (
+            <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 select-none text-base leading-none text-slate-300 transition-opacity group-hover:text-brand">
+              ‹
+            </div>
+          )}
+        </div>
+        <aside
+          aria-label={panelLabel}
+          className={`flex shrink-0 flex-col bg-slate-50 transition-[width] duration-150 ${
+            collapsed ? 'overflow-hidden' : ''
+          }`}
+          style={{ width: collapsed ? 0 : rightWidth }}
+        >
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">{asideContent}</div>
+        </aside>
+      </>
+    );
+  };
+
   return (
     <div className="flex h-screen flex-col bg-white text-slate-800">
-      {/* 标题栏 */}
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-4">
-        <div className="flex items-center gap-2">
+      {/* 标题栏：左 = 品牌区，中 = 视图 Tab，右 = API 状态 + 设置 */}
+      <header className="flex h-12 shrink-0 items-center border-b border-slate-200 px-4">
+        {/* 左侧：Logo / 标题 / 版本号 / 项目切换 */}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <Logo size={22} />
           <h1 className="text-base font-semibold">FreeCoder</h1>
           {appInfo && <span className="text-xs text-slate-400">v{appInfo.version}</span>}
           {/* 项目切换器（列表 + 新建入口） */}
           {projects.length > 0 && <ProjectSwitcher />}
         </div>
-        <div className="flex items-center gap-2">
+        {/* 中间：主功能 Tab（对话 / 预览 / 文档 / 部署） */}
+        <nav
+          className="flex shrink-0 items-center gap-1 rounded-full bg-slate-100/70 p-1"
+          aria-label="主导航"
+        >
+          {VIEW_TABS.map((tab) => {
+            const isDeploy = tab.key === 'deploy';
+            const isActive = !isDeploy && currentView === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => (isDeploy ? openDeploy() : setView(tab.key))}
+                title={tab.label}
+                aria-label={tab.label}
+                aria-current={isActive ? 'page' : undefined}
+                className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs transition-colors ${
+                  isActive
+                    ? 'bg-white font-medium text-brand shadow-sm'
+                    : 'text-slate-500 hover:bg-white/60'
+                }`}
+              >
+                <span className="text-sm leading-none">{tab.icon}</span>
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+        {/* 右侧：API 状态徽章 + 设置 */}
+        <div className="flex flex-1 items-center justify-end gap-2">
           <button
             type="button"
             onClick={() => {
@@ -559,19 +814,17 @@ ${steps}
         </div>
       </header>
 
-      {/* 主流程步骤条（创建项目 → 方案探讨 → 生成代码 → 预览调整 → 导出） */}
-      {currentProjectId && (
+      {/* 主流程步骤条：文档主工作区独立阅读，不占用步骤条空间 */} 
+      {currentProjectId && currentView !== 'documents' && (
         <StepFlow
           status={projectStatus}
           onGoChat={() => setView('chat')}
           onGoPreview={() => setView('preview')}
-          onGoExport={openExport}
         />
       )}
 
-      {/* 主体：侧栏 + 工作区 + 右侧面板（chat 视图才有右侧面板，preview 视图交给 AI 助理浮窗） */}
+      {/* 主体：工作区 + 右侧面板（chat 视图才有右侧面板，preview 视图交给 AI 助理浮窗） */}
       <main className="flex flex-1 overflow-hidden">
-        <Sidebar />
         <section className="flex-1 overflow-hidden">
           {!currentProjectId ? (
             <ProjectWelcome />
@@ -583,71 +836,66 @@ ${steps}
               autoTestRunning={autoTestRunning}
               autoTestLatestProgress={autoTestLatestProgress}
             />
-          ) : (
+          ) : currentView === 'preview' ? (
             <PreviewContainer />
-          )}
+          ) : currentView === 'documents' ? (
+            <DocumentViewer
+              key={`${currentProjectId}:${selectedDocumentPath ?? 'empty'}`}
+              projectId={currentProjectId}
+              selectedPath={selectedDocumentPath}
+            />
+          ) : null}
         </section>
-        {/* 右侧面板：chat 视图显示需求/版本计划 + MiniChat；preview 视图显示 AI 助理面板（共享一套可拖动分隔条） */}
-        {currentProjectId && currentView === 'chat' && (
-          <>
-            {/* 可拖动分隔条：左右拖动调整工作区/右侧面板宽度 */}
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              title="拖动调整右侧面板宽度"
-              onMouseDown={startResize}
-              className="group relative w-1.5 shrink-0 cursor-col-resize"
-            >
-              <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-slate-200 transition-colors group-hover:bg-brand group-active:bg-brand" />
-            </div>
-            <aside className="flex shrink-0 flex-col bg-slate-50" style={{ width: rightWidth }}>
-              {/* 可滚动内容区 */}
-              <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                {requirements ? (
-                  <div className="space-y-4">
-                    {(projectStatus === 'planned' || projectStatus === 'developing') && (
-                      <VersionPlanCard
-                        plan={versionPlan}
-                        coreFeatures={requirements.coreFeatures}
-                        status={projectStatus}
-                        onConfirm={(plan) => void handleConfirmPlan(plan)}
-                      />
-                    )}
-                    <RequirementCard
-                      requirements={requirements}
-                      status={projectStatus}
-                      onConfirm={(skip) => void handleConfirm(skip)}
-                      onUpdate={handleUpdateRequirements}
-                      reviewPending={reviewPending}
-                    />
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-xs text-slate-400">
-                    📋 需求卡片
-                    <br />
-                    <span className="mt-1 block">完成需求对话后，这里会显示整理好的需求</span>
-                  </div>
+        {/* 右侧面板：chat 显示需求/版本计划，documents 显示目录树，preview 显示 AI 助理。
+            宽屏：嵌入 + 可拖动分隔条 + 双击折叠；窄屏：自动改为浮动抽屉。
+            AI 助理聊天浮窗统一由 App 末尾的全局 <DraggableChat /> 渲染，跨视图共享同一实例。 */}
+        {currentProjectId && currentView === 'chat' &&
+          renderRightPanel(
+            requirements ? (
+              <div className="space-y-4">
+                {(projectStatus === 'planned' || projectStatus === 'developing') && (
+                  <VersionPlanCard
+                    plan={versionPlan}
+                    coreFeatures={requirements.coreFeatures}
+                    status={projectStatus}
+                    onConfirm={(plan) => void handleConfirmPlan(plan)}
+                  />
                 )}
+                <RequirementCard
+                  requirements={requirements}
+                  status={projectStatus}
+                  onConfirm={(skip) => void handleConfirm(skip)}
+                  onUpdate={handleUpdateRequirements}
+                  reviewPending={reviewPending}
+                />
               </div>
-              {/* 对话窗固定在底部：消息流在上、输入框贴底 */}
-              <div className="shrink-0 border-t border-slate-200 bg-slate-100/70 p-3">
-                <MiniChat placeholder="和 AI 聊聊，比如：不是说先不搞登录吗？" />
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-xs text-slate-400">
+                📋 需求卡片
+                <br />
+                <span className="mt-1 block">完成需求对话后，这里会显示整理好的需求</span>
               </div>
-            </aside>
-          </>
-        )}
-        {/* preview 视图右侧面板：AI 助理（📌 进度 / 🔍 元素 / 💬 开发日志 + 底部 MiniChat） */}
-        {currentProjectId && currentView === 'preview' && (
-          <>
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              title="拖动调整右侧面板宽度"
-              onMouseDown={startResize}
-              className="group relative w-1.5 shrink-0 cursor-col-resize"
-            >
-              <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-slate-200 transition-colors group-hover:bg-brand group-active:bg-brand" />
-            </div>
+            ),
+            '需求与版本计划面板',
+            '📋 打开需求',
+            '📋 需求与计划',
+          )}
+        {/* 文档主工作区：中央渲染内容，右侧显示项目文档与图片目录树 */}
+        {currentProjectId && currentView === 'documents' &&
+          renderRightPanel(
+            <DocumentDirectory
+              projectId={currentProjectId}
+              selectedPath={selectedDocumentPath}
+              onSelect={selectDocument}
+            />,
+            '项目文档目录',
+            '📂 打开目录',
+            '📂 文档目录',
+          )}
+        {/* preview 视图右侧面板：AI 助理（📌 进度 / 🔍 元素 / 💬 开发日志）。
+            底部 MiniChat 已统一到 App 末尾的全局 <DraggableChat />。 */}
+        {currentProjectId && currentView === 'preview' &&
+          renderRightPanel(
             <AssistantPanel
               resumeGuide={resumeGuide}
               onResumeAction={handleResumeAction}
@@ -665,12 +913,18 @@ ${steps}
               devProgress={devProgress}
               lastTestReport={lastTestReport}
               onViewReport={() => setView('chat')}
-              onOpenExport={() => openExport()}
+              onOpenDeploy={() => openDeploy()}
               onSendModify={(instruction) => void sendMessage(instruction)}
-              style={{ width: rightWidth }}
-            />
-          </>
-        )}
+              onSendModifyFix={onSendModifyFix}
+              lastTestFixAt={lastTestFixAt}
+              clearSuggestRetest={clearSuggestRetest}
+              interruptBanner={interruptBanner}
+              clearInterruptBanner={clearInterruptBanner}
+            />,
+            'AI 助理面板',
+            '🤖 AI 助理',
+            '🤖 AI 助理',
+          )}
       </main>
 
       {/* 状态栏 */}
@@ -690,8 +944,8 @@ ${steps}
         <span>项目保存在本地 · 数据不上传</span>
       </footer>
 
-      {/* 导出面板 */}
-      <ExportPanel />
+      {/* 智能部署面板（v3.2：替代原 ExportPanel，含一键启动 / 智能打包 / 部署指引 / 高级导出四大支柱） */}
+      <DeployPanel />
 
       {/* 首次启动 / 设置弹窗（欢迎态由 ui store 的 inviteMode 原子驱动） */}
       <ApiKeyModal
@@ -701,6 +955,24 @@ ${steps}
         initialModel={settings?.model}
         initialApiKeyMasked={settings?.apiKeyMasked}
       />
+
+      {/* AI 助理聊天浮窗（全局唯一）：chat / preview 视图共享同一实例，
+          切换视图时位置 / 最小化状态 / 输入框内容 / 滚动位置全部跨视图保持，
+          让用户感觉「切换【对话 / 预览】时 AI 助理没换，还是那一个」。 */}
+      {currentProjectId && (
+        <DraggableChat
+          placeholder={
+            currentView === 'preview'
+              ? '和 AI 聊聊，比如：标题颜色太深 / 继续开发 / 选中元素后会自动带上…'
+              : currentView === 'documents'
+                ? '和 AI 聊聊当前文档或项目，比如：帮我补一份 README'
+                : '和 AI 聊聊当前需求，比如：不是说先不搞登录吗？'
+          }
+          marqueeOnProcessing={currentView === 'preview' || currentView === 'documents'}
+          marqueeText={autoTestRunning ? '🧪 测试中…' : 'AI 正在处理中'}
+          hidden={aiChatHidden}
+        />
+      )}
     </div>
   );
 }

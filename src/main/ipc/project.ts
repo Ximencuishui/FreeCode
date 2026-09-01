@@ -1,4 +1,6 @@
-import { BrowserWindow, dialog, type OpenDialogOptions } from 'electron';
+import { BrowserWindow, dialog, shell, type OpenDialogOptions } from 'electron';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { IpcChannels } from '../../shared/types/ipc';
 import type {
   ProjectListResult,
@@ -21,6 +23,15 @@ import type {
   ProjectAutoTestResult,
   ProjectConvertToLocalModeParams,
   ProjectConvertToLocalModeResult,
+  ProjectDocumentListParams,
+  ProjectDocumentListResult,
+  ProjectDocumentReadParams,
+  ProjectDocumentReadResult,
+  ProjectOpenAssetParams,
+  ProjectOpenAssetResult,
+  ProjectDocumentCategory,
+  ProjectDocumentKind,
+  ProjectDocumentSummary,
 } from '../../shared/types/project';
 import type { SignalEvent, ChatResponseEvent } from '../../shared/types/chat';
 import type { StorageManager, Requirements } from '../storage/types';
@@ -46,7 +57,228 @@ function broadcastResponse(projectId: string, event: ChatResponseEvent): void {
   }
 }
 
-/** 项目管理域 IPC（API 文档 4.3），基于本地存储实现 */
+const MAX_PROJECT_ITEMS = 240;
+const MAX_SCAN_DEPTH = 4;
+const MAX_MARKDOWN_BYTES = 2 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+const DOCUMENT_EXTENSIONS = new Set(['.md', '.markdown']);
+const IMAGE_MEDIA_TYPES: ReadonlyMap<string, string> = new Map([
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.webp', 'image/webp'],
+  ['.gif', 'image/gif'],
+  ['.svg', 'image/svg+xml'],
+  ['.avif', 'image/avif'],
+  ['.ico', 'image/x-icon'],
+  ['.bmp', 'image/bmp'],
+]);
+const EXCLUDED_DIRECTORIES = new Set([
+  '.git',
+  '.cache',
+  '.next',
+  '.nuxt',
+  '.pnpm-store',
+  '.npm-cache',
+  'coverage',
+  'dist',
+  'node_modules',
+  'out',
+  'release',
+  'resources',
+  'temp',
+  'tmp',
+]);
+const CATEGORY_ORDER: Record<ProjectDocumentCategory, number> = {
+  overview: 0,
+  requirements: 1,
+  plan: 2,
+  technical: 3,
+  testing: 4,
+  contributing: 5,
+  asset: 6,
+  other: 7,
+};
+
+interface ScannedProjectEntry {
+  absolutePath: string;
+  relativePath: string;
+  kind: ProjectDocumentKind;
+}
+
+function toForwardSlashPath(filePath: string): string {
+  return filePath.split(path.sep).join('/');
+}
+
+function isInside(parent: string, child: string): boolean {
+  return child === parent || child.startsWith(`${parent}${path.sep}`);
+}
+
+function mediaTypeForExtension(extension: string): string | null {
+  return IMAGE_MEDIA_TYPES.get(extension.toLowerCase()) ?? null;
+}
+
+function kindForExtension(extension: string): ProjectDocumentKind | null {
+  if (DOCUMENT_EXTENSIONS.has(extension.toLowerCase())) return 'document';
+  return mediaTypeForExtension(extension) ? 'image' : null;
+}
+
+function categoryForDocument(relativePath: string, kind: ProjectDocumentKind): ProjectDocumentCategory {
+  if (kind === 'image') return 'asset';
+  const fileName = path.basename(relativePath).toLowerCase();
+  const normalized = relativePath.toLowerCase();
+  if (fileName === 'readme.md' || fileName === 'readme.markdown') return 'overview';
+  if (/(需求|requirement|prd)/.test(normalized)) return 'requirements';
+  if (/(架构|技术|前端|接口|api|数据库|database|架构设计)/.test(normalized)) return 'technical';
+  if (/(开发计划|版本|roadmap|changelog|release|plan)/.test(normalized)) return 'plan';
+  if (/(测试|报告|test|spec)/.test(normalized)) return 'testing';
+  if (fileName === 'contributing.md' || /贡献/.test(normalized)) return 'contributing';
+  return 'other';
+}
+
+function createProjectDocumentSummary(
+  entry: ScannedProjectEntry,
+  stat: { size: number; mtime: Date },
+): ProjectDocumentSummary {
+  return {
+    name: path.basename(entry.relativePath),
+    relativePath: toForwardSlashPath(entry.relativePath),
+    kind: entry.kind,
+    category: categoryForDocument(entry.relativePath, entry.kind),
+    size: stat.size,
+    modifiedAt: stat.mtime.toISOString(),
+  };
+}
+
+async function scanProjectFiles(rootPath: string): Promise<ScannedProjectEntry[]> {
+  const entries: ScannedProjectEntry[] = [];
+
+  async function walk(directory: string, depth: number): Promise<void> {
+    if (depth > MAX_SCAN_DEPTH || entries.length >= MAX_PROJECT_ITEMS) return;
+    let dirEntries;
+    try {
+      dirEntries = await fs.readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    dirEntries.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+
+    for (const entry of dirEntries) {
+      if (entries.length >= MAX_PROJECT_ITEMS) break;
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (!EXCLUDED_DIRECTORIES.has(entry.name.toLowerCase())) {
+          await walk(absolutePath, depth + 1);
+        }
+        continue;
+      }
+      if (!entry.isFile()) continue;
+
+      const relativePath = toForwardSlashPath(path.relative(rootPath, absolutePath));
+      const isInDocs = depth === 0 || relativePath.startsWith('docs/');
+      const kind = kindForExtension(path.extname(entry.name));
+      if (!kind || (kind === 'document' && !isInDocs)) continue;
+      entries.push({ absolutePath, relativePath, kind });
+    }
+  }
+
+  await walk(rootPath, 0);
+  return entries;
+}
+
+async function listProjectDocuments(codePath: string): Promise<ProjectDocumentSummary[]> {
+  let realRoot: string;
+  try {
+    realRoot = await fs.realpath(codePath);
+  } catch {
+    return [];
+  }
+
+  const summaries: ProjectDocumentSummary[] = [];
+  for (const entry of await scanProjectFiles(realRoot)) {
+    try {
+      const stat = await fs.stat(entry.absolutePath);
+      if (!stat.isFile() || stat.isSymbolicLink()) continue;
+      summaries.push(createProjectDocumentSummary(entry, stat));
+    } catch {
+      /* 扫描后文件被删除或变为不可读时忽略 */
+    }
+  }
+
+  return summaries.sort(
+    (a, b) =>
+      CATEGORY_ORDER[a.category] - CATEGORY_ORDER[b.category] ||
+      a.relativePath.localeCompare(b.relativePath, 'zh-CN'),
+  );
+}
+
+function validateDocumentRelativePath(relativePath: string): string {
+  if (
+    !relativePath ||
+    relativePath.includes('\\') ||
+    relativePath.includes('\0') ||
+    path.isAbsolute(relativePath) ||
+    relativePath.split('/').some((segment) => !segment || segment === '.' || segment === '..')
+  ) {
+    throw new IpcError('INVALID_PARAMS', '文档路径无效');
+  }
+  return relativePath;
+}
+
+async function readProjectFile(
+  codePath: string,
+  relativePath: string,
+): Promise<{ summary: ProjectDocumentSummary; absolutePath: string; content: Buffer; mediaType: string | null }> {
+  validateDocumentRelativePath(relativePath);
+  let realRoot: string;
+  try {
+    realRoot = await fs.realpath(codePath);
+  } catch {
+    throw new IpcError('FILE_IO_ERROR', '项目目录尚不存在');
+  }
+
+  const absolutePath = path.resolve(realRoot, relativePath);
+  let realFile: string;
+  try {
+    realFile = await fs.realpath(absolutePath);
+  } catch {
+    throw new IpcError('NOT_FOUND', '文档不存在或已被移动');
+  }
+  if (!isInside(realRoot, realFile)) {
+    throw new IpcError('FILE_IO_ERROR', '文档位于项目目录之外');
+  }
+
+  const kind = kindForExtension(path.extname(relativePath));
+  if (!kind) {
+    throw new IpcError('INVALID_PARAMS', '只支持 Markdown 文档和常见图片素材');
+  }
+  if (kind === 'document' && !relativePath.startsWith('docs/') && relativePath.includes('/')) {
+    throw new IpcError('FILE_IO_ERROR', 'Markdown 文档只能位于项目根目录或 docs 目录');
+  }
+  const stat = await fs.lstat(realFile);
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new IpcError('FILE_IO_ERROR', '目标不是可读取的普通文件');
+  }
+  const maxBytes = kind === 'image' ? MAX_IMAGE_BYTES : MAX_MARKDOWN_BYTES;
+  if (stat.size > maxBytes) {
+    throw new IpcError(
+      'FILE_IO_ERROR',
+      `${kind === 'image' ? '图片素材' : 'Markdown 文档'}不能超过 ${maxBytes / 1024 / 1024} MB`,
+    );
+  }
+
+  return {
+    absolutePath: realFile,
+    summary: createProjectDocumentSummary(
+      { absolutePath: realFile, relativePath, kind },
+      stat,
+    ),
+    content: await fs.readFile(realFile),
+    mediaType: kind === 'image' ? mediaTypeForExtension(path.extname(relativePath)) : null,
+  };
+}
+
+// 项目管理域 IPC（API 文档 4.3），基于本地存储实现
 export function registerProjectIpc(
   storage: StorageManager,
   dsh: DSHService,
@@ -177,6 +409,96 @@ export function registerProjectIpc(
       },
     };
   });
+
+  /** 扫描当前项目可阅读的 Markdown 文档与图片素材 */
+  handleIpc<ProjectDocumentListParams, ProjectDocumentListResult>(
+    IpcChannels.projectListDocuments,
+    async (_event, params) => {
+      if (!params?.projectId?.trim()) {
+        throw new IpcError('INVALID_PARAMS', '项目 ID 不能为空');
+      }
+      const project = await storage.getProject(params.projectId);
+      if (!project) {
+        throw new IpcError('PROJECT_NOT_FOUND', '项目不存在');
+      }
+      return {
+        success: true,
+        documents: await listProjectDocuments(storage.getProjectCodePath(project.id)),
+      };
+    },
+  );
+
+  /** 读取一个已扫描到的 Markdown 文档或图片素材，限制相对路径与文件大小 */
+  handleIpc<ProjectDocumentReadParams, ProjectDocumentReadResult>(
+    IpcChannels.projectReadDocument,
+    async (_event, params) => {
+      if (!params?.projectId?.trim()) {
+        throw new IpcError('INVALID_PARAMS', '项目 ID 不能为空');
+      }
+      const project = await storage.getProject(params.projectId);
+      if (!project) {
+        throw new IpcError('PROJECT_NOT_FOUND', '项目不存在');
+      }
+      const file = await readProjectFile(
+        storage.getProjectCodePath(project.id),
+        validateDocumentRelativePath(params.relativePath ?? ''),
+      );
+      if (file.summary.kind === 'image') {
+        return {
+          success: true,
+          document: file.summary,
+          absolutePath: file.absolutePath,
+          asset: {
+            src: `data:${file.mediaType};base64,${file.content.toString('base64')}`,
+            mediaType: file.mediaType ?? 'application/octet-stream',
+            alt: file.summary.name,
+          },
+        };
+      }
+      return {
+        success: true,
+        document: file.summary,
+        absolutePath: file.absolutePath,
+        content: file.content.toString('utf8'),
+      };
+    },
+  );
+
+  /**
+   * 用系统默认应用打开项目内的一张图片素材（典型：.svg → 浏览器）。
+   * 安全链路：项目存在 → 路径校验 → kind 必须是 image → realpath 仍在项目根 → 非符号链接。
+   */
+  handleIpc<ProjectOpenAssetParams, ProjectOpenAssetResult>(
+    IpcChannels.projectOpenAsset,
+    async (_event, params) => {
+      if (!params?.projectId?.trim()) {
+        throw new IpcError('INVALID_PARAMS', '项目 ID 不能为空');
+      }
+      const project = await storage.getProject(params.projectId);
+      if (!project) {
+        throw new IpcError('PROJECT_NOT_FOUND', '项目不存在');
+      }
+      const file = await readProjectFile(
+        storage.getProjectCodePath(project.id),
+        validateDocumentRelativePath(params.relativePath ?? ''),
+      );
+      if (file.summary.kind !== 'image') {
+        throw new IpcError('INVALID_PARAMS', '只能打开图片素材，Markdown 文档不支持外部打开');
+      }
+      // readProjectFile 已经过 realpath + isInside 校验；这里直接拼回项目根即可
+      const absolutePath = path.join(
+        storage.getProjectCodePath(project.id),
+        file.summary.relativePath,
+      );
+      // shell.openPath 在 Windows/macOS/Linux 上都走系统默认应用；
+      // 返回非空字符串表示错误描述（如"找不到应用"），空串代表成功
+      const openError = await shell.openPath(absolutePath);
+      if (openError) {
+        return { success: false, error: openError };
+      }
+      return { success: true };
+    },
+  );
 
   // 手动编辑需求（确认前可修改需求项；合并进现有需求并记录历史）
   handleIpc<UpdateRequirementsParams, UpdateRequirementsResult>(

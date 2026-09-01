@@ -4,6 +4,7 @@ import Marquee from '../Marquee';
 import {
   estimateRemainingMs,
   formatDuration,
+  isOvertime,
   progressPercent,
 } from './autoTestProgress';
 
@@ -50,6 +51,10 @@ export default function AutoTestPlanCard({
   const remainingMs = finished
     ? 0
     : estimateRemainingMs(expectedDurationMs, startedAt, now, finished);
+  // 已超出预估（剩余时间为负）：渲染「已超出预估 X 秒」而非「预计还需 0 秒」，
+  // 避免给用户「马上要结束」的错觉
+  const overtimeMs = !finished && remainingMs < 0 ? Math.abs(remainingMs) : 0;
+  const isOver = isOvertime(expectedDurationMs, startedAt, now, finished);
   const percent = progressPercent(finished ? total : Math.max(currentStep + 1, 0), total);
 
   // 步骤状态点：done / active / todo
@@ -137,9 +142,20 @@ export default function AutoTestPlanCard({
         <span className="tabular-nums" data-testid="auto-test-elapsed">
           ⏱ 已用时 {formatDuration(elapsedMs)}
         </span>
-        {!finished && (
+        {!finished && !isOver && remainingMs > 0 && (
           <span className="tabular-nums" data-testid="auto-test-remaining">
             ⏱ 预计还需 {formatDuration(remainingMs)}
+          </span>
+        )}
+        {!finished && isOver && (
+          <span
+            className="tabular-nums rounded bg-amber-200/60 px-1.5 py-0.5 text-amber-800"
+            data-testid="auto-test-overtime"
+            title={`初始预估 ${formatDuration(expectedDurationMs)}，实际已用 ${formatDuration(
+              elapsedMs,
+            )}`}
+          >
+            ⏱ 已超出预估 {formatDuration(overtimeMs)}
           </span>
         )}
         {finished && typeof totalDurationMs === 'number' && (
@@ -152,10 +168,19 @@ export default function AutoTestPlanCard({
         )}
       </div>
 
-      {!finished && (
+      {!finished && !isOver && (
         <p className="mt-1.5 text-[11px] text-amber-700/70" data-testid="auto-test-friendly-tip">
           💡 不用一直盯着，约 {formatDuration(remainingMs)} 后会自动出报告；
           关掉窗口或退出也行，再点测试会从头来一次（计划仍会显示）。
+        </p>
+      )}
+
+      {!finished && isOver && (
+        <p
+          className="mt-1.5 text-[11px] text-amber-700/80"
+          data-testid="auto-test-friendly-tip-overtime"
+        >
+          💡 比预估更久了，仍在执行工具调用中；不急着打断，等模型给出最终报告即可。
         </p>
       )}
 

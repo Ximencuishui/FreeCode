@@ -115,4 +115,22 @@ describe('chat store：自动测试状态', () => {
     expect(s.autoTestRunning).toBe(false);
     expect(s.autoTestLatestProgress).toBeNull();
   });
+
+  it('UT-INT-STORE-001 resetAutoTestPlan 同步清掉 interruptBanner（避免残留旧 reason）', () => {
+    const banner = { reason: 'DSH 断开', retryAt: Date.now() + 5_000 };
+    useChatStore.setState({
+      autoTestRunning: true,
+      interruptBanner: banner,
+    });
+    useChatStore.getState().resetAutoTestPlan();
+    expect(useChatStore.getState().interruptBanner).toBeNull();
+  });
+
+  it('UT-INT-STORE-002 setProject 跨项目切换清掉 interruptBanner', () => {
+    useChatStore.setState({
+      interruptBanner: { reason: 'x', retryAt: Date.now() + 5_000 },
+    });
+    useChatStore.getState().setProject('proj-next');
+    expect(useChatStore.getState().interruptBanner).toBeNull();
+  });
 });

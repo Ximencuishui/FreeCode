@@ -101,6 +101,75 @@ export interface ProjectSelectLocationResult {
   error?: string;
 }
 
+export type ProjectDocumentKind = 'document' | 'image';
+
+export type ProjectDocumentCategory =
+  | 'overview'
+  | 'requirements'
+  | 'technical'
+  | 'plan'
+  | 'testing'
+  | 'contributing'
+  | 'asset'
+  | 'other';
+
+/** 文档目录中的单个 Markdown 文档或用户图片素材 */
+export interface ProjectDocumentSummary {
+  name: string;
+  relativePath: string;
+  kind: ProjectDocumentKind;
+  category: ProjectDocumentCategory;
+  size: number;
+  modifiedAt: string;
+}
+
+export interface ProjectDocumentListParams {
+  projectId: string;
+}
+
+export interface ProjectDocumentListResult {
+  success: boolean;
+  documents: ProjectDocumentSummary[];
+  error?: string;
+}
+
+export interface ProjectDocumentReadParams extends ProjectDocumentListParams {
+  /** 只允许主进程扫描结果中的项目相对路径，使用正斜杠 */
+  relativePath: string;
+}
+
+export interface ProjectDocumentReadResult {
+  success: boolean;
+  document?: ProjectDocumentSummary;
+  /**
+   * 真实文件绝对路径（主进程解析后）；渲染层用其生成"绝对路径"复制格式，
+   * 不应当用作 fetch / img src（避免渲染进程直接访问本地文件系统）。
+   */
+  absolutePath?: string;
+  /** Markdown 正文（kind=document） */
+  content?: string;
+  /** 图片素材（kind=image，data URL） */
+  asset?: {
+    src: string;
+    mediaType: string;
+    alt: string;
+  };
+  error?: string;
+}
+
+/**
+ * 用系统默认应用打开一个图片素材（典型场景：.svg 直接交给浏览器渲染看完整效果）。
+ * 主进程会校验路径仍在项目目录内、且 kind === 'image'，避免越界打开任意本地文件。
+ */
+export interface ProjectOpenAssetParams extends ProjectDocumentListParams {
+  relativePath: string;
+}
+
+export interface ProjectOpenAssetResult {
+  success: boolean;
+  error?: string;
+}
+
 export interface ProjectDeleteParams {
   projectId: string;
   confirm: boolean;

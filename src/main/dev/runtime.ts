@@ -15,24 +15,54 @@ export const RUNTIME_FILES = ['server.js', 'auth.js', 'package.json'] as const;
 /** sql.js WASM 文件（相对于 app-runtime 目录），注入时需一并复制 */
 const SQLJS_WASM_FILE = 'node_modules/sql.js/dist/sql-wasm.wasm';
 
+/**
+ * packagedDir 是否包含运行所必需的关键文件（至少 server.js + auth.js）。
+ * 历史上出现过 process.resourcesPath 指向 E:\resources（开发/测试环境），
+ * packagedDir 目录存在但内部文件缺失（残留/未完整），导致注入全部 ENOENT、preview 后端空白。
+ * 探测关键文件可避免误把空壳目录当成有效 runtime 目录。
+ */
+function hasCompleteRuntimeFiles(dir: string): boolean {
+  try {
+    return fs.existsSync(path.join(dir, 'server.js')) && fs.existsSync(path.join(dir, 'auth.js'));
+  } catch {
+    return false;
+  }
+}
+
 /** 运行时资源目录：打包后位于 process.resourcesPath/app-runtime；开发/测试在仓库根 resources/ */
 export function getRuntimeDir(): string {
   // 测试环境无 process.resourcesPath，跳过打包目录探测
   if (typeof process.resourcesPath === 'string' && process.resourcesPath) {
     const packagedDir = path.join(process.resourcesPath, 'app-runtime');
     try {
-      // 检测 resourcesPath 是否有效：必须是存在的目录，且不是盘符根（如 "E:\"）
+      // 检测 resourcesPath 是否有效：必须是存在的目录，且不是盘符根（如 "E:\" 长度为 3），
+      // 且关键文件齐全（避免命中残留/不完整的 packagedDir 导致注入全失败）。
       const isValidResourcesPath =
         fs.existsSync(packagedDir) &&
         fs.statSync(process.resourcesPath).isDirectory() &&
-        process.resourcesPath.length > 3; // 盘符根如 "E:\" 长度为 3
+        process.resourcesPath.length > 3 &&
+        hasCompleteRuntimeFiles(packagedDir);
       if (isValidResourcesPath) return packagedDir;
     } catch {
       /* ignore */
     }
   }
-  // src/main/dev → 仓库根（dist 下同理：dist/main/dev → 根）
-  return path.resolve(__dirname, '..', '..', '..', 'resources', 'app-runtime');
+  // 候选 fallback 路径：
+  // - vite-plugin-electron 把所有 main 代码打包成单文件 dist/main/index.js（__dirname = dist/main）
+  // - 源码运行（jest 等）时 __dirname = src/main/dev
+  // - 测试夹具或特殊环境下 __dirname 可能再深一层
+  // 按"第一个存在的目录"挑选，避免硬编码层级
+  const fallbackCandidates = [
+    path.resolve(__dirname, '..', 'resources', 'app-runtime'),
+    path.resolve(__dirname, '..', '..', 'resources', 'app-runtime'),
+    path.resolve(__dirname, '..', '..', '..', 'resources', 'app-runtime'),
+    path.resolve(__dirname, '..', '..', '..', '..', 'resources', 'app-runtime'),
+  ];
+  for (const dir of fallbackCandidates) {
+    if (fs.existsSync(dir) && hasCompleteRuntimeFiles(dir)) return dir;
+  }
+  // 都没有：返回最可能正确的路径（dist/main → 仓库根）
+  return fallbackCandidates[0];
 }
 
 /** 注入登录运行时到项目代码目录（幂等；任何失败静默，不阻塞开发流程） */
