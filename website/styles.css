@@ -653,10 +653,10 @@ a { color: inherit; text-decoration: none; }
   .mock-window { aspect-ratio: 4 / 3; }
   .float-1 { left: -10px; }
   .float-2 { right: -8px; }
-  .cards { grid-template-columns: 1fr; max-width: 560px; }
-  .steps { grid-template-columns: 1fr; max-width: 560px; }
-  .guide-grid { grid-template-columns: 1fr; max-width: 560px; }
-  .why-grid { grid-template-columns: 1fr; max-width: 560px; }
+  .cards { grid-template-columns: 1fr; max-width: 560px; margin: 0 auto; }
+  .steps { grid-template-columns: 1fr; max-width: 560px; margin: 0 auto; }
+  .guide-grid { grid-template-columns: 1fr; max-width: 560px; margin: 0 auto; }
+  .why-grid { grid-template-columns: 1fr; max-width: 560px; margin: 0 auto; }
   .stats-inner { grid-template-columns: repeat(2, 1fr); gap: 26px; }
 }
 
