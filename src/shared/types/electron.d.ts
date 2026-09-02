@@ -48,6 +48,12 @@ import type {
 } from './project';
 import type { ExportStartParams, ExportStartResult, ExportCompleteEvent } from './export';
 import type {
+  PackageStartParams,
+  PackageStartResult,
+  PackageProgressEvent,
+  PackageCompleteEvent,
+} from './package';
+import type {
   DbProvisionParams,
   DbProvisionResult,
 } from './dbprovision';
@@ -126,6 +132,14 @@ declare global {
         start: (params: ExportStartParams) => Promise<ExportStartResult>;
         onComplete: (callback: (data: ExportCompleteEvent) => void) => Unsubscribe;
       };
+      package: {
+        /** 启动桌面端打包任务；产物路径通过 onComplete 推送 */
+        start: (params: PackageStartParams) => Promise<PackageStartResult>;
+        /** 订阅打包进度推送（阶段 + 人可读 message + electron-builder 原始日志） */
+        onProgress: (callback: (data: PackageProgressEvent) => void) => Unsubscribe;
+        /** 订阅打包完成事件（success/failed/cancelled） */
+        onComplete: (callback: (data: PackageCompleteEvent) => void) => Unsubscribe;
+      };
       db: {
         /** 一键申请云数据库（调用云服务商 API 自动创建，返回连接信息） */
         provision: (params: DbProvisionParams) => Promise<DbProvisionResult>;
@@ -145,6 +159,8 @@ declare global {
         quit: () => void;
         /** 用系统浏览器打开外部链接（主进程白名单仅允许 http/https） */
         openExternal: (url: string) => Promise<{ success: boolean }>;
+        /** 在系统文件管理器中高亮显示本地文件（用于打开导出/打包产物） */
+        revealInFolder: (path: string) => Promise<{ success: boolean }>;
       };
     };
   }

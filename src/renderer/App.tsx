@@ -12,6 +12,7 @@ import VersionPlanCard from './components/Chat/VersionPlanCard';
 import DeployPanel from './components/Export/DeployPanel';
 import ApiKeyModal from './components/ApiKeyModal';
 import Logo from './components/Logo';
+import AiAssistantIcon from './components/AiAssistantIcon';
 import StepFlow from './components/StepFlow';
 import { useChatStore, type ResumeGuide, type ResumeAction } from './store/chat';
 import { useProjectStore } from './store/project';
@@ -650,8 +651,8 @@ ${steps}
   const renderRightPanel = (
     asideContent: ReactNode,
     panelLabel: string,
-    drawerLabel: string,
-    drawerTitle: string,
+    drawerLabel: ReactNode,
+    drawerTitle: ReactNode,
   ) => {
     if (isNarrow) {
       return (
@@ -922,8 +923,14 @@ ${steps}
               clearInterruptBanner={clearInterruptBanner}
             />,
             'AI 助理面板',
-            '🤖 AI 助理',
-            '🤖 AI 助理',
+            <span className="flex items-center gap-1.5">
+              <AiAssistantIcon size={14} className="shrink-0" withSparkle={false} />
+              AI 助理
+            </span>,
+            <span className="flex items-center gap-1.5">
+              <AiAssistantIcon size={16} className="shrink-0" withSparkle={false} />
+              AI 助理
+            </span>,
           )}
       </main>
 

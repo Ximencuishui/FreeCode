@@ -14,6 +14,7 @@ import DevLog from '../DevLog';
 import AutoTestPlanCard from '../Chat/AutoTestPlanCard';
 import AutoTestSummaryCard from '../Chat/AutoTestSummaryCard';
 import { formatDuration } from '../Chat/autoTestProgress';
+import AiAssistantIcon from '../AiAssistantIcon';
 
 interface AssistantPanelProps {
   /** 项目进度引导（项目恢复 / 继续下一步 / 自动测试进度等） */
@@ -198,7 +199,10 @@ export default function AssistantPanel({
       {/* 标题 */}
       <div className="shrink-0 border-b border-slate-200 bg-white">
         <div className="flex items-center px-4 pt-3 pb-2">
-          <h3 className="text-sm font-semibold text-slate-800">🤖 AI 助理</h3>
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            <AiAssistantIcon size={16} className="shrink-0" withSparkle={false} />
+            AI 助理
+          </h3>
         </div>
         <div className="flex gap-0.5 px-3 pb-2">
           <button

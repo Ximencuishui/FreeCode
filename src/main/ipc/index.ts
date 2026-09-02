@@ -3,6 +3,7 @@ import { registerChatIpc } from './chat';
 import { registerProjectIpc } from './project';
 import { registerPreviewIpc } from './preview';
 import { registerExportIpc } from './export';
+import { registerPackageIpc } from './package';
 import { registerSettingsIpc } from './settings';
 import { registerApiKeyIpc } from './apikey';
 import { registerDbIpc } from './db';
@@ -23,6 +24,7 @@ export function registerIpcHandlers(
   registerProjectIpc(storage, dsh, developer, planner);
   registerPreviewIpc(storage);
   registerExportIpc(storage);
+  registerPackageIpc(storage);
   registerSettingsIpc(storage);
   registerApiKeyIpc(storage);
   registerDbIpc();

@@ -41,7 +41,36 @@ import { parseStructuredTestReport } from '../dsh/testReportParser';
 import { toolProgressLabel } from '../dev/developer';
 import type { Developer } from '../dev/developer';
 import type { VersionPlanner } from '../dev/planner';
+import {
+  backfillProjectDocs,
+  writeLogoPlaceholder,
+  writeReadmeDoc,
+  writeRequirementsDoc,
+  writeVersionPlanDoc,
+} from '../dev/docsGenerator';
 import { handleIpc, IpcError } from './helpers';
+
+/**
+ * 把文档生成这种"非关键路径写入"做成 fire-and-forget：
+ * - 写入成功 / 跳过（null）记一行 info
+ * - 写入失败仅 console.warn，不影响主流程
+ * 这样 confirm / planner / confirmPlan / developer 这些 IPC handler 不会被文档
+ * 写入阻塞，也避免单次写失败让上层 Promise 拒绝。
+ *
+ * 接受任意 thenable，泛型 T 在 await 后透传给 console.log；不限制必须是 string | null，
+ * 兼容 backfillProjectDocs 这种返回多个字段的对象。
+ */
+function fireDocWrite<T>(label: string, promise: Promise<T>): void {
+  void promise
+    .then((target) => {
+      if (target) {
+        console.log(`[FreeCoder] ${label} →`, target);
+      }
+    })
+    .catch((error) => {
+      console.warn(`[FreeCoder] ${label} 失败：`, error);
+    });
+}
 
 /** 向所有窗口推送 chat:signal 事件 */
 function broadcastSignal(signal: SignalEvent): void {
@@ -421,6 +450,11 @@ export function registerProjectIpc(
       if (!project) {
         throw new IpcError('PROJECT_NOT_FOUND', '项目不存在');
       }
+      // 老项目升级到本版本之前没有 docs/requirements.md / version-plan.md：
+      // 第一次扫描时按需回填，让【文档】Tab 第一次进入就能看到需求与版本计划。
+      // 改成 fire-and-forget：避免 4 次 stat + 多次 write 把 listDocuments IPC 阻塞 100-300ms；
+      // backfill 内部对每个写入都已经 try/catch，此处 fireDocWrite 兜底防御性捕获。
+      fireDocWrite('回填项目文档', backfillProjectDocs(storage, params.projectId));
       return {
         success: true,
         documents: await listProjectDocuments(storage.getProjectCodePath(project.id)),
@@ -722,6 +756,14 @@ export function registerProjectIpc(
       await storage.confirmRequirements(params.projectId);
       await storage.updateProjectMeta(params.projectId, { status: 'planned' });
 
+      // 需求确认通过：立即把已确认需求落盘为 docs/requirements.md，
+      // 让用户在【文档】工作区第一时间看到完整的需求说明书。
+      // 同时刷新 README.md 的"文档导航"与"V1 核心功能"章节（虽然 plan 还没生成），
+      // 让用户点开【文档】的 README 立刻能看到需求摘要 + 文档索引。
+      // 失败仅告警，不影响状态推进（listDocuments 处的 backfill 也会兜底）。
+      fireDocWrite('[confirm] 已写入需求文档', writeRequirementsDoc(storage, params.projectId));
+      fireDocWrite('[confirm] 已写入 README', writeReadmeDoc(storage, params.projectId));
+
       // 后台生成版本分段计划，完成时推送信号（渲染端刷新计划卡片）
       void planner
         .generatePlan(params.projectId, (outcome) => {
@@ -730,6 +772,15 @@ export function registerProjectIpc(
             message: outcome.message,
             timestamp: new Date().toISOString(),
           });
+          // 版本计划生成成功 → 落盘 docs/version-plan.md，让【文档】Tab 立即可见
+          // 并刷新 README 的"V1 核心功能"索引
+          if (outcome.success) {
+            fireDocWrite(
+              '[plan] 已写入版本计划文档',
+              writeVersionPlanDoc(storage, params.projectId),
+            );
+            fireDocWrite('[plan] 已刷新 README', writeReadmeDoc(storage, params.projectId));
+          }
         })
         .catch(() => undefined);
 
@@ -769,6 +820,15 @@ export function registerProjectIpc(
         status: 'developing',
       });
 
+      // 用户可能调整了 V1/V2 功能划分 → 用最新 plan 重写 docs/version-plan.md，
+      // 保证【文档】Tab 看到的版本计划与开发实际使用的 plan 完全一致。
+      // 同时刷新 README，让"V1 核心功能"索引跟上。
+      fireDocWrite(
+        '[confirmPlan] 已写入版本计划文档',
+        writeVersionPlanDoc(storage, params.projectId),
+      );
+      fireDocWrite('[confirmPlan] 已刷新 README', writeReadmeDoc(storage, params.projectId));
+
       // 后台执行开发（只开发 V1/MVP），完成时推送信号；开发中实时推送进度报告
       void developer
         .startDevelopment(
@@ -779,6 +839,15 @@ export function registerProjectIpc(
               message: outcome.message,
               timestamp: new Date().toISOString(),
             });
+            // 开发成功：DSH 通常会按需求生成自定义 logo/icon，但 prompt 没强制，
+            // 兜底补一份 assets/logo.svg，让【文档】Tab 的图片素材区至少有图可看。
+            // writeLogoPlaceholder 用 wx 原子创建，DSH 已生成则捕获 EEXIST 跳过，绝不覆盖。
+            if (outcome.success) {
+              fireDocWrite(
+                '[develop] 已写入占位 logo',
+                writeLogoPlaceholder(storage, params.projectId),
+              );
+            }
           },
           (label) => {
             broadcastResponse(params.projectId, {

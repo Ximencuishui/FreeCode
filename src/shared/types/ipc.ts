@@ -38,6 +38,10 @@ export const IpcChannels = {
   // 导出
   exportStart: 'export:start',
   exportComplete: 'export:complete',
+  // 智能打包（electron-builder 桌面端安装包）
+  packageStart: 'package:start',
+  packageProgress: 'package:progress',
+  packageComplete: 'package:complete',
   // 云数据库（一键申请）
   dbProvision: 'db:provision',
   // 设置
@@ -53,6 +57,7 @@ export const IpcChannels = {
   appInfo: 'app:info',
   appQuit: 'app:quit',
   appOpenExternal: 'app:open-external',
+  appRevealInFolder: 'app:reveal-in-folder',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

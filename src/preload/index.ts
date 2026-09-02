@@ -53,6 +53,11 @@ const electronApi: Window['electron'] = {
     start: (params) => ipcRenderer.invoke(IpcChannels.exportStart, params),
     onComplete: (callback) => subscribe(IpcChannels.exportComplete, callback),
   },
+  package: {
+    start: (params) => ipcRenderer.invoke(IpcChannels.packageStart, params),
+    onProgress: (callback) => subscribe(IpcChannels.packageProgress, callback),
+    onComplete: (callback) => subscribe(IpcChannels.packageComplete, callback),
+  },
   db: {
     provision: (params) => ipcRenderer.invoke(IpcChannels.dbProvision, params),
   },
@@ -69,6 +74,7 @@ const electronApi: Window['electron'] = {
     getInfo: () => ipcRenderer.invoke(IpcChannels.appInfo),
     quit: () => ipcRenderer.send(IpcChannels.appQuit),
     openExternal: (url) => ipcRenderer.invoke(IpcChannels.appOpenExternal, { url }),
+    revealInFolder: (path) => ipcRenderer.invoke(IpcChannels.appRevealInFolder, { path }),
   },
 };
 
