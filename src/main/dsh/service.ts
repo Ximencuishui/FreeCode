@@ -346,7 +346,7 @@ export function extractJsonLineToolCalls(chunk: string): DSHProgressUpdate[] {
     if (!trimmed) continue;
     if (trimmed.startsWith('<<<FC_')) continue; // 已被 prefix 扫描处理
     // 预检：必须以 { 或 [ 开头、以 } 或 ] 结尾（独立完整 JSON 行）
-    if (!/^[\[{]/.test(trimmed)) continue;
+    if (!/^[{[]/.test(trimmed)) continue;
     if (!/[\]}]\s*$/.test(trimmed)) continue;
     // 预检：必须含 "name" 字段（避免每行 JSON.parse 浪费 CPU）
     if (!(/["']name["']/.test(trimmed))) continue;

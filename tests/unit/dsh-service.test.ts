@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import * as nodeFs from 'node:fs';
 import {
   DSHService,
   detectApiError,
@@ -272,8 +273,8 @@ describe('DSH 服务层', () => {
       const launch = resolveDshLaunch();
       expect(launch.source).toBe('bundled');
       expect(launch.argv.length).toBe(2); // [内置 node.exe, bin.js]
-      expect(require('node:fs').existsSync(launch.argv[0])).toBe(true);
-      expect(require('node:fs').existsSync(launch.argv[1])).toBe(true);
+      expect(nodeFs.existsSync(launch.argv[0])).toBe(true);
+      expect(nodeFs.existsSync(launch.argv[1])).toBe(true);
     } finally {
       if (prev === undefined) delete process.env.FREECODER_DSH_COMMAND;
       else process.env.FREECODER_DSH_COMMAND = prev;

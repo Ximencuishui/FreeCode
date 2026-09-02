@@ -1,6 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs/promises';
-import { createReadStream, watch, type FSWatcher } from 'node:fs';
+import { createReadStream, readFileSync, watch, type FSWatcher } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -118,8 +118,7 @@ export class PreviewServer extends EventEmitter {
       // 直接编译一个全新的 Module 实例（不依赖 Module._cache / require.cache），
       // 保证项目 server.js 被毒化（dbReady 永久 rejected）后能彻底重新执行
       // useSync: false 走异步读；用同步读避免把 async 塞进同步流程
-      const fsSync = require('node:fs') as typeof import('node:fs');
-      const source = fsSync.readFileSync(serverPath, 'utf8');
+      const source = readFileSync(serverPath, 'utf8');
       const fresh = new Module(serverPath);
       fresh.filename = serverPath;
       fresh.paths = (Module as unknown as { _nodeModulePaths: (p: string) => string[] })._nodeModulePaths(
