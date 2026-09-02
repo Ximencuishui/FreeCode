@@ -271,10 +271,20 @@ describe('DSH 服务层', () => {
     delete process.env.FREECODER_DSH_COMMAND;
     try {
       const launch = resolveDshLaunch();
-      expect(launch.source).toBe('bundled');
-      expect(launch.argv.length).toBe(2); // [内置 node.exe, bin.js]
-      expect(nodeFs.existsSync(launch.argv[0])).toBe(true);
-      expect(nodeFs.existsSync(launch.argv[1])).toBe(true);
+      // 内置运行时由 scripts/bundle-dsh.mjs 生成，文件较大不入库；
+      // CI 环境（如 GitHub Actions Linux runner）clone 后没有这些文件，
+      // 此时 resolveDshLaunch 会退化为 'path' 或 'missing'——属于预期降级，不视为失败。
+      if (launch.source === 'bundled') {
+        expect(launch.argv.length).toBe(2); // [内置 node.exe, bin.js]
+        expect(nodeFs.existsSync(launch.argv[0])).toBe(true);
+        expect(nodeFs.existsSync(launch.argv[1])).toBe(true);
+      } else {
+        // 没有 bundled 运行时：必须给出可用的 argv（PATH 中的 dsh 或显式 missing 占位），
+        // 且不能存在指向不存在文件的 argv。
+        expect(launch.argv.length).toBeGreaterThanOrEqual(1);
+        const firstExists = launch.argv[0] === 'dsh' || nodeFs.existsSync(launch.argv[0]);
+        expect(firstExists).toBe(true);
+      }
     } finally {
       if (prev === undefined) delete process.env.FREECODER_DSH_COMMAND;
       else process.env.FREECODER_DSH_COMMAND = prev;
