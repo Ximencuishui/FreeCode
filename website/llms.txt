@@ -12,11 +12,14 @@ FreeCoder 是一款开源的、本地优先的桌面应用（基于 Electron）�
 
 - AI 助理（需求分析师）：对话引导、需求挖掘、信号翻译、结构化需求卡片
 - 即时预览（可视化反馈）：内置浏览器、元素悬停识别、口语修改即时生效
-- 自助导出（部署准备）：导出源码 + Dockerfile + docker-compose + 中英文部署指引
+- 智能部署助手：一键启动 / 智能打包（spawn electron-builder 真打 .exe / .dmg / .AppImage）/ 部署指引 / 5 步 DeployConfigWizard（DB · 登录 · 邮箱 · JWT），MilestoneCard 实时提示关键节点
+- 项目文档中心：开发完成后自动生成 README / 需求文档 / 版本计划等 Markdown，集中目录树浏览 + Markdown 渲染查看器
+- 自动测试：DSH 智能体在开发完成后自动规划与执行测试用例，聊天窗口内「自动测试计划卡片 + 进度条」实时展示阶段与剩余时间
+- 跨平台 + 数据 + 登录：electron-builder 跨平台打包代码就位（Windows / macOS / Linux）；数据可选 SQLite 本地存储或 Neon / Supabase 一键云数据库；登录支持密码与 GitHub / Google 等 OAuth 第三方登录
 
 ## 工作闭环
 
-对话 → 开发 → 预览 → 修改 → 导出
+对话 → 开发 → 预览 → 修改 → 自动测试 → 智能部署 / 文档归档
 
 ## 技术栈
 
@@ -30,8 +33,11 @@ FreeCoder 底层基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引�
 
 ## 平台与状态
 
-- Windows 10/11 已就绪（已验证）；macOS / Linux 即将推出
-- 当前版本：0.1.0（MVP），生成的应用为静态 Web 应用（数据存于本地）
+- Windows 10/11 已发布；macOS / Linux 跨平台打包代码已就位（package/service.ts），按 GitHub Releases 节奏放出
+- 当前迭代：0.1.x（首版 0.1.0 发布于 2026-08-20；版本号跟随 package.json，bump-version.mjs 自动递增 0.1.01 → 0.1.02 …）
+- 数据存储：SQLite（本地）或 Neon / Supabase（云数据库）
+- 登录：密码登录 + GitHub / Google 等 OAuth
+- 测试：40 套件 / 352 用例 / 100% 通过（CI 全绿）
 - 需要自备 DeepSeek API Key（platform.deepseek.com 申请），系统级加密存储（safeStorage）
 
 ## 隐私

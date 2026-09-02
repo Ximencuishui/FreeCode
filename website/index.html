@@ -6,8 +6,8 @@
 
   <!-- ===== SEO ===== -->
   <title>FreeCoder — 把想法变成可用的软件，像跟朋友聊天一样简单</title>
-  <meta name="description" content="FreeCoder 是开源、本地优先的桌面应用，底层基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎：用自然语言对话即可从零生成可运行的软件。AI 需求分析、即时预览、一键导出部署包，全程不写一行代码，数据保存在本地，自备 DeepSeek API Key 即用。" />
-  <meta name="keywords" content="FreeCoder, AI 编程, 自然语言生成软件, 无代码开发, AI 应用生成器, 桌面应用, DeepSeek, DeepSeek Harness, DSH, 智能体引擎, Agent, 开源软件" />
+  <meta name="description" content="FreeCoder 是开源、本地优先的桌面应用，底层基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎：用自然语言对话即可从零生成可运行的软件。AI 需求分析、自动开发、即时预览、口语修改、智能部署助手、项目文档中心、自动测试、可拖拽 AI 浮窗、跨平台打包（Windows / macOS / Linux）、SQLite 与一键云数据库（Neon / Supabase），全程不写一行代码，数据保存在本地，自备 DeepSeek API Key 即用。" />
+  <meta name="keywords" content="FreeCoder, AI 编程, 自然语言生成软件, 无代码开发, AI 应用生成器, 桌面应用, DeepSeek, DeepSeek Harness, DSH, 智能体引擎, Agent, 开源软件, 智能部署, 项目文档, 自动测试, 跨平台, SQLite, Neon, Supabase" />
   <meta name="author" content="FreeCoder Team" />
   <meta name="robots" content="index, follow, max-image-preview:large" />
   <link rel="canonical" href="https://freecoder.vercel.app/" />
@@ -19,7 +19,7 @@
   <meta property="og:locale" content="zh_CN" />
   <meta property="og:url" content="https://freecoder.vercel.app/" />
   <meta property="og:title" content="FreeCoder — 把想法变成可用的软件，像跟朋友聊天一样简单" />
-  <meta property="og:description" content="基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎 · 开源 · 本地优先 · 不写一行代码。对话 → 开发 → 预览 → 修改 → 导出，把想法变成可运行的软件。" />
+  <meta property="og:description" content="基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎 · 开源 · 本地优先 · 不写一行代码。需求分析 → 自动开发 → 即时预览 → 口语修改 → 智能部署 · 项目文档 · 自动测试 · 跨平台打包 · SQLite / 一键云数据库。" />
   <meta property="og:image" content="https://freecoder.vercel.app/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -28,7 +28,7 @@
   <!-- ===== Twitter Card ===== -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="FreeCoder — 把想法变成可用的软件" />
-  <meta name="twitter:description" content="基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎 · 开源 · 本地优先 · 不写一行代码。对话 → 开发 → 预览 → 修改 → 导出。" />
+  <meta name="twitter:description" content="基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎 · 开源 · 本地优先 · 不写一行代码。需求分析 · 即时预览 · 智能部署 · 项目文档 · 自动测试 · 跨平台。" />
   <meta name="twitter:image" content="https://freecoder.vercel.app/og-image.png" />
 
   <!-- ===== 结构化数据（SEO / GEO） ===== -->
@@ -38,10 +38,10 @@
     "@type": "SoftwareApplication",
     "name": "FreeCoder",
     "alternateName": "FreeCoder 桌面应用",
-    "description": "FreeCoder 是开源的、本地优先的桌面应用，让非技术用户通过自然语言对话从零生成可运行的软件。底层基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎，AI 需求分析、即时预览、口语修改、一键导出部署包，全程不写一行代码，所有数据保存在本地，自备 DeepSeek API Key 即可使用。",
+    "description": "FreeCoder 是开源的、本地优先的桌面应用，让非技术用户通过自然语言对话从零生成可运行的软件。底层基于 DeepSeek 开源的 DeepSeek Harness（DSH）智能体引擎，AI 需求分析、自动开发、即时预览、口语修改、智能部署助手、项目文档中心、自动测试、可拖拽 AI 浮窗、跨平台打包（Windows / macOS / Linux）、SQLite 与一键云数据库（Neon / Supabase）、OAuth 第三方登录，全程不写一行代码，所有数据保存在本地，自备 DeepSeek API Key 即可使用。",
     "applicationCategory": "DeveloperApplication",
-    "operatingSystem": "Windows 10/11（macOS、Linux 即将推出）",
-    "softwareVersion": "0.1.0",
+    "operatingSystem": "Windows 10/11、macOS、Linux（electron-builder 跨平台打包代码已就位，详见 GitHub Releases）",
+    "softwareVersion": "0.1.x（迭代中，跟随 package.json；首版 0.1.0 发布于 2026-08-20）",
     "url": "https://freecoder.vercel.app/",
     "license": "https://opensource.org/licenses/MIT",
     "offers": {
@@ -121,7 +121,7 @@
         "name": "支持哪些平台？",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "当前 0.1.0 支持 Windows 10/11（已验证）；macOS 与 Linux 版本配置已就绪，即将推出。"
+          "text": "Windows 10/11 已验证发布；macOS 与 Linux 的 electron-builder 跨平台打包代码已在主进程 package/service.ts 中就绪（process.platform 全套分支判断），按 GitHub Releases 节奏陆续放出安装包。"
         }
       },
       {
@@ -129,7 +129,31 @@
         "name": "生成的软件可以部署上线吗？",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "可以。确认满意后一键导出部署包：完整源码 + Dockerfile + docker-compose + 中英文部署指引，在任何支持 Docker 的服务器上即可上线运行，产品完全属于你。"
+          "text": "可以。内置「智能部署助手」提供四大路径：一键启动（复用预览服务器立即跑起来）、智能打包（spawn electron-builder 真打 .exe / .dmg / .AppImage）、部署指引（云 / Docker / 服务器，附真实命令与产物入口）、高级导出（5 步 DeployConfigWizard：数据库 / 登录 / 邮箱 / JWT / 确认，导出 zip 包含源码、Dockerfile、docker-compose、.env 与中英文部署指引）。"
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "数据库与登录怎么选？",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "数据存储可选 SQLite（本地优先，零运维）或一键申请 Neon / Supabase 云数据库；登录方式支持密码登录与 GitHub / Google 等 OAuth 第三方登录，所有凭据通过系统级加密（safeStorage）保存在本地。"
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "会自动跑测试吗？",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "会。需求确认后 DSH 智能体会在开发完成后自动规划与执行测试用例，聊天窗口里以「自动测试计划卡片 + 进度条」实时展示当前阶段、已完成项与剩余预估时间；测试结束后给出结构化报告。"
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "项目会自动生成文档吗？",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "会。每次开发完成会自动生成 README、需求文档、版本计划等 Markdown 文档，集中在「文档中心」目录树中浏览；还提供 Markdown 渲染查看器与目录索引，无需离开 FreeCoder 即可审阅项目全貌。"
         }
       }
     ]
@@ -211,7 +235,7 @@
               查看源码
             </a>
           </div>
-          <p class="hero-meta">自备 DeepSeek API Key 即用 · 无需月费 · Windows 已就绪，macOS / Linux 即将推出</p>
+          <p class="hero-meta">自备 DeepSeek API Key 即用 · 无需月费 · Windows 已发布，macOS / Linux 跨平台打包就绪（按 GitHub Releases 节奏陆续放出）</p>
         </div>
       </div>
     </section>
@@ -304,8 +328,8 @@
     <section class="section" id="features">
       <div class="section-head reveal">
         <span class="kicker">核心功能</span>
-        <h2>三大能力，构成完整闭环</h2>
-        <p>无需离开 FreeCoder，即可完成从想法到可运行软件的全过程。</p>
+        <h2>六大能力，构成完整闭环</h2>
+        <p>无需离开 FreeCoder，即可完成从想法到可运行软件、再到上线部署的全过程。</p>
       </div>
       <div class="cards">
         <article class="card reveal">
@@ -317,7 +341,7 @@
           <ul class="card-list">
             <li>对话引导 · 需求挖掘</li>
             <li>信号翻译 · 结构化需求卡片</li>
-            <li>随时可看「开发团队怎么说」</li>
+            <li>可拖拽 AI 浮窗，多任务并行</li>
           </ul>
         </article>
         <article class="card reveal">
@@ -334,14 +358,50 @@
         </article>
         <article class="card reveal">
           <div class="card-icon" style="--ic:#4AC38E">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
           </div>
-          <h3>自助导出 · 部署准备</h3>
-          <p>一键导出完整部署包：源码 + Dockerfile + docker-compose + 图文中文部署指引，在任何支持 Docker 的服务器上即可上线。</p>
+          <h3>智能部署助手</h3>
+          <p>从「让应用真正跑起来」出发，四大路径覆盖一键启动、智能打包、部署指引与高级导出，里程碑卡片实时呈现关键节点。</p>
           <ul class="card-list">
-            <li>源码 + Docker 配置一键打包</li>
-            <li>中英文部署指引图文并茂</li>
-            <li>产品完全属于你，可自由部署</li>
+            <li>一键启动 · 智能打包 · 部署指引</li>
+            <li>5 步 DeployConfigWizard（DB / 登录 / 邮箱 / JWT）</li>
+            <li>MilestoneCard 关键节点提醒</li>
+          </ul>
+        </article>
+        <article class="card reveal">
+          <div class="card-icon" style="--ic:#7A5AF8">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+          </div>
+          <h3>项目文档中心</h3>
+          <p>开发完成后自动生成 README、需求文档、版本计划等 Markdown 文档，集中在文档中心目录树中浏览与查阅。</p>
+          <ul class="card-list">
+            <li>自动回填 README / 需求文档 / 版本计划</li>
+            <li>Markdown 渲染查看器</li>
+            <li>目录索引与项目文件安全预览</li>
+          </ul>
+        </article>
+        <article class="card reveal">
+          <div class="card-icon" style="--ic:#F2A93B">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </div>
+          <h3>自动测试 · 进度可视化</h3>
+          <p>开发完成后 DSH 智能体自动规划与执行测试用例，聊天窗口里以「自动测试计划卡片 + 进度条」实时展示当前阶段与剩余时间。</p>
+          <ul class="card-list">
+            <li>测试用例自动规划与执行</li>
+            <li>阶段化进度条 + 时间预估</li>
+            <li>结构化测试报告与重测提示</li>
+          </ul>
+        </article>
+        <article class="card reveal">
+          <div class="card-icon" style="--ic:#E26B6B">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><path d="M6 10h4M6 13h8"/></svg>
+          </div>
+          <h3>跨平台 · 数据库 · 登录</h3>
+          <p>electron-builder 跨平台打包代码已就位（Windows / macOS / Linux）；数据可选 SQLite 本地存储或一键申请 Neon / Supabase 云数据库；登录支持密码与 OAuth 第三方登录。</p>
+          <ul class="card-list">
+            <li>Windows / macOS / Linux 跨平台</li>
+            <li>SQLite 或 Neon / Supabase 云数据库</li>
+            <li>密码 + GitHub / Google OAuth</li>
           </ul>
         </article>
       </div>
@@ -482,10 +542,11 @@
         <div class="req-card reveal">
           <strong>使用须知</strong>
           <ul>
-            <li>🖥️ 平台：Windows 10 / 11 已就绪，macOS / Linux 即将推出</li>
-            <li>🔑 需要自备 DeepSeek API Key（可在 platform.deepseek.com 申请）</li>
+            <li>🖥️ 平台：Windows 10 / 11 已发布；macOS / Linux 跨平台打包代码就位，按 GitHub Releases 节奏放出</li>
+            <li>🔑 需要自备 DeepSeek API Key（可在 platform.deepseek.com 申请），系统级加密（safeStorage）保存</li>
             <li>🔒 所有代码与数据保存在本地，无任何云端依赖、无遥测</li>
-            <li>💡 当前 0.1.0 为 MVP，生成的应用为静态 Web 应用（数据存于本地）</li>
+            <li>💾 数据存储可选 SQLite 本地优先，或一键申请 Neon / Supabase 云数据库</li>
+            <li>🚀 当前迭代 0.1.x：新增智能部署助手、项目文档中心、自动测试进度卡片、可拖拽 AI 浮窗</li>
           </ul>
         </div>
       </div>
@@ -521,11 +582,23 @@
         </details>
         <details class="faq-item reveal">
           <summary>支持哪些平台？</summary>
-          <p>当前 0.1.0 支持 Windows 10/11（已验证）；macOS 与 Linux 版本配置已就绪，即将推出。</p>
+          <p>Windows 10/11 已验证发布；macOS 与 Linux 的 electron-builder 跨平台打包代码已在主进程 <code>package/service.ts</code> 中就位（<code>process.platform</code> 全套分支判断），按 GitHub Releases 节奏陆续放出安装包。</p>
         </details>
         <details class="faq-item reveal">
           <summary>生成的软件可以部署上线吗？</summary>
-          <p>可以。确认满意后一键导出部署包：完整源码 + Dockerfile + docker-compose + 中英文部署指引，在任何支持 Docker 的服务器上即可上线运行，产品完全属于你。</p>
+          <p>可以。内置「智能部署助手」提供四大路径：一键启动（复用预览服务器立即跑起来）、智能打包（spawn electron-builder 真打 .exe / .dmg / .AppImage）、部署指引（云 / Docker / 服务器，附真实命令与产物入口）、高级导出（5 步 DeployConfigWizard：数据库 / 登录 / 邮箱 / JWT / 确认，导出 zip 包含源码、Dockerfile、docker-compose、.env 与中英文部署指引）。完成后通过 MilestoneCard 展示关键节点，并支持 revealInFolder 直接打开产物。</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>数据库与登录怎么选？</summary>
+          <p>数据存储可选 SQLite（本地优先，零运维）或一键申请 Neon / Supabase 云数据库；登录方式支持密码登录与 GitHub / Google 等 OAuth 第三方登录，所有凭据通过系统级加密（safeStorage）保存在本地。</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>会自动跑测试吗？</summary>
+          <p>会。需求确认后 DSH 智能体会在开发完成后自动规划与执行测试用例，聊天窗口里以「自动测试计划卡片 + 进度条」实时展示当前阶段、已完成项与剩余预估时间；测试结束后给出结构化报告，失败项可一键发起重测。</p>
+        </details>
+        <details class="faq-item reveal">
+          <summary>项目会自动生成文档吗？</summary>
+          <p>会。每次开发完成会自动生成 README、需求文档、版本计划等 Markdown 文档，集中在「文档中心」目录树中浏览；还提供 Markdown 渲染查看器与目录索引，无需离开 FreeCoder 即可审阅项目全貌。</p>
         </details>
       </div>
     </section>
@@ -542,7 +615,7 @@
           </a>
           <a class="btn btn-ghost" href="https://github.com/Ximencuishui/FreeCode" target="_blank" rel="noopener">查看源码与文档</a>
         </div>
-        <p class="download-note">💡 安装与配置步骤见上方 <a href="#guide">安装指南</a> · 当前 0.1.0 为 MVP：Windows 已就绪 · macOS / Linux 即将推出</p>
+        <p class="download-note">💡 安装与配置步骤见上方 <a href="#guide">安装指南</a> · 当前迭代 0.1.x（首版 0.1.0）：Windows 已发布 · macOS / Linux 跨平台打包就位</p>
       </div>
     </section>
   </main>
