@@ -5,10 +5,15 @@ interface StepFlowProps {
   status: ProjectStatus | null;
   onGoChat: () => void;
   onGoPreview: () => void;
+  /** 切到顶部 🚀 部署 Tab（仅在「预览调整」步骤时展示引导按钮）。 */
+  onGoDeploy: () => void;
 }
 
 /** 主流程步骤条：创建项目 → 方案探讨 → 版本分段 → 生成代码 → 预览调整
- * （"导出"已挪到顶部 header 中间 Tab，不再作为流程阶段展示）
+ * 「部署」是顶部 header 中间 Tab 的持久化视图，不属于流程阶段本身。
+ * 但当「预览调整」是当前激活步骤时，会在末尾追加「→ 🚀 项目部署」引导按钮，
+ * 强化"预览 → 上线"的产品闭环提示——避免用户以为流程到"预览调整"就结束了。
+ * （原"导出"已挪到顶部 Tab，保留这条注释是为了不在重构里丢失历史决策。）
  */
 const STEPS = [
   { key: 'create', label: '创建项目' },
@@ -42,7 +47,7 @@ function currentIndex(status: ProjectStatus | null): number {
   }
 }
 
-export default function StepFlow({ status, onGoChat, onGoPreview }: StepFlowProps) {
+export default function StepFlow({ status, onGoChat, onGoPreview, onGoDeploy }: StepFlowProps) {
   const active = currentIndex(status);
 
   const handleClick = (index: number) => {
@@ -149,6 +154,28 @@ export default function StepFlow({ status, onGoChat, onGoPreview }: StepFlowProp
           </div>
         );
       })}
+      {/* 「下一步：项目部署」引导按钮：
+          仅当「预览调整」是当前激活步骤（active === STEPS.length - 1）时渲染，
+          强化"预览 → 上线"的产品闭环提示。点击切换到顶部 🚀 部署 Tab，
+          与 STEPS 步骤胶囊（灰 / 淡蓝）做视觉区分，用品牌色实心按钮引导用户继续。
+          不进 STEPS 数组（部署不属于流程阶段），也不加数字快捷键（保持 1-5 不变）。 */}
+      {active === STEPS.length - 1 && (
+        <>
+          <span className="mx-1.5 text-slate-300" aria-hidden="true">
+            →
+          </span>
+          <button
+            type="button"
+            onClick={onGoDeploy}
+            title="下一步：项目部署（顶部 🚀 部署 Tab）"
+            aria-label="下一步：项目部署"
+            className="flex items-center gap-1.5 rounded-full bg-brand px-2.5 py-1 text-xs font-medium text-white shadow-sm transition-colors hover:bg-brand-hover"
+          >
+            <span aria-hidden="true">🚀</span>
+            项目部署
+          </button>
+        </>
+      )}
     </div>
   );
 }

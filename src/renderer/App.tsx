@@ -972,6 +972,7 @@ ${steps}
           status={projectStatus}
           onGoChat={() => setView('chat')}
           onGoPreview={() => setView('preview')}
+          onGoDeploy={() => setView('deploy')}
         />
       )}
 
