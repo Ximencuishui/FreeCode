@@ -39,3 +39,6 @@ resources/dsh/*
 resources/node/*
 !resources/node/.gitkeep
 
+# 本地临时工作目录（agent 用来放 release 脚本 / 临时文件，含 token 等敏感信息）
+.tools/
+

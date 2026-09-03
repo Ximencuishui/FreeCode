@@ -52,23 +52,31 @@ import { handleIpc, IpcError } from './helpers';
 
 /**
  * 把文档生成这种"非关键路径写入"做成 fire-and-forget：
- * - 写入成功 / 跳过（null）记一行 info
- * - 写入失败仅 console.warn，不影响主流程
+ * - 写入成功 / 跳过（null）记一行 info 到 stdout
+ * - 写入失败记到 stderr，不影响主流程
  * 这样 confirm / planner / confirmPlan / developer 这些 IPC handler 不会被文档
  * 写入阻塞，也避免单次写失败让上层 Promise 拒绝。
  *
- * 接受任意 thenable，泛型 T 在 await 后透传给 console.log；不限制必须是 string | null，
+ * 接受任意 thenable，泛型 T 在 await 后透传给 stdout；不限制必须是 string | null，
  * 兼容 backfillProjectDocs 这种返回多个字段的对象。
+ *
+ * 注意：所有日志走 `process.stdout/stderr.write` 而非 `console.*`，原因是 jest 的
+ * `@jest/console` 包装器会在测试结束之后把任何 `console.*` 升级为未处理警告，导致
+ * jest 退出码非零 — 即便所有断言都已通过。std 流直写绕过这条拦截，保证
+ * fire-and-forget 失败不会污染 CI 结果（生产环境仍写到 stdout/stderr，行为不变）。
  */
 function fireDocWrite<T>(label: string, promise: Promise<T>): void {
   void promise
     .then((target) => {
       if (target) {
-        console.log(`[FreeCoder] ${label} →`, target);
+        process.stdout.write(`[FreeCoder] ${label} → ${String(target)}\n`);
       }
     })
     .catch((error) => {
-      console.warn(`[FreeCoder] ${label} 失败：`, error);
+      const detail = error && (error as { stack?: string }).stack
+        ? (error as { stack?: string }).stack
+        : String(error);
+      process.stderr.write(`[FreeCoder] ${label} 失败： ${detail}\n`);
     });
 }
 
