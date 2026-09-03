@@ -452,6 +452,26 @@ a { color: inherit; text-decoration: none; }
 .step h3 { font-size: 16.5px; font-weight: 700; margin-bottom: 8px; }
 .step p { font-size: 13.5px; color: var(--text-dim); }
 
+/* ---------- 为谁打造 ---------- */
+.audience-grid { max-width: var(--maxw); margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.audience {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 26px 24px;
+  transition: transform 0.25s, border-color 0.25s, background 0.25s;
+}
+.audience:hover { transform: translateY(-4px); border-color: var(--border-strong); background: var(--panel-strong); }
+.audience-icon { font-size: 28px; display: block; margin-bottom: 14px; }
+.audience h3 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+.audience-tag {
+  font-size: 12.5px;
+  color: var(--cyan);
+  letter-spacing: 0.4px;
+  margin-bottom: 12px;
+}
+.audience > p:not(.audience-tag) { font-size: 14px; color: var(--text-dim); }
+
 /* ---------- 为什么选择 ---------- */
 .why-grid { max-width: var(--maxw); margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 .why {
@@ -500,7 +520,15 @@ a { color: inherit; text-decoration: none; }
   background: linear-gradient(135deg, rgba(0, 97, 178, 0.12), rgba(0, 150, 181, 0.05));
   text-align: left;
 }
-.engine-icon { font-size: 26px; line-height: 1; flex-shrink: 0; }
+.engine-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+}
+.engine-icon img { width: 48px; height: 48px; display: block; object-fit: contain; }
 .engine-card h3 { font-size: 16.5px; font-weight: 700; margin-bottom: 6px; }
 .engine-card p { font-size: 14px; color: var(--text-dim); line-height: 1.65; margin-bottom: 14px; }
 .engine-card p strong { color: var(--text); }
@@ -657,6 +685,7 @@ a { color: inherit; text-decoration: none; }
   .steps { grid-template-columns: 1fr; max-width: 560px; margin: 0 auto; }
   .guide-grid { grid-template-columns: 1fr; max-width: 560px; margin: 0 auto; }
   .why-grid { grid-template-columns: 1fr; max-width: 560px; margin: 0 auto; }
+    .audience-grid { grid-template-columns: 1fr; max-width: 560px; margin: 0 auto; }
   .stats-inner { grid-template-columns: repeat(2, 1fr); gap: 26px; }
 }
 
