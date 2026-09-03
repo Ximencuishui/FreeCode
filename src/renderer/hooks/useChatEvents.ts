@@ -24,6 +24,14 @@ export function useChatEvents(): void {
   const setAutoTestLastSummary = useChatStore((s) => s.setAutoTestLastSummary);
   const setInterruptBanner = useChatStore((s) => s.setInterruptBanner);
   const resetAutoTestPlan = useChatStore((s) => s.resetAutoTestPlan);
+  // v0.1.02 P0-3：自动测试失败计数器与上限
+  const incrementAutoTestRetry = useChatStore((s) => s.incrementAutoTestRetry);
+  const resetAutoTestRetry = useChatStore((s) => s.resetAutoTestRetry);
+  // 自动重试上限：连续失败 3 次后停止自动重试，要求用户手动介入
+  const AUTO_TEST_MAX_RETRIES = 3;
+  // 指数退避基数：首次失败 5s 后重试，二次 10s，三次 20s（上限 60s）
+  const AUTO_TEST_RETRY_BASE_MS = 5_000;
+  const AUTO_TEST_RETRY_CAP_MS = 60_000;
 
   useEffect(() => {
     const unsubResponse = window.electron.chat.onResponse((data) => {
@@ -102,6 +110,8 @@ export function useChatEvents(): void {
           // 测试完成：resetAutoTestPlan() 已同步清掉 autoTestLatestProgress，不需 setTimeout 兜底
           // （保留上次进度可在后续历史中重新出现，但清掉能避免“最近提示”长期残留）
           // 重置进行中的计划字段（保留 lastSummary / lastTestReport）
+          // v0.1.02 P0-3：测试成功完成 → 清零失败计数，让下次失败从 1 重新累加
+          resetAutoTestRetry();
           resetAutoTestPlan();
         }
         return;
@@ -137,23 +147,66 @@ export function useChatEvents(): void {
         content: signal.message,
         timestamp: signal.timestamp,
       });
-      // 开发任务失败信号：复位"开发中"状态并清空进度，引导卡回到"是否继续"，允许重试
+      // v3.2.1 P0-4：把"开发失败"和"自动测试失败"按当前实际状态分流清理，
+      // 之前共用一个 error 分支无条件 reset，会出现：
+      //   - 自动测试失败时把 devProgress 误清（用户看不到开发员的工具调用过程）
+      //   - 开发失败时调用 resetAutoTestPlan / setAutoTestLatestProgress 等无关字段
+      // 现在按 state.devTaskRunning / state.autoTestRunning 各管各的，避免互相污染。
       if (signal.type === 'error') {
         const state = useChatStore.getState();
-        // 自动测试进行中被中断：弹 amber banner 给用户提供 5s 自动重试入口
+        // 自动测试进行中被中断：弹 amber banner 给用户提供倒计时自动重试入口
         // （区别于开发任务失败 → 走 reset 路径让用户从 ResumeGuide 重新触发）
-        // 注意：reset 路径会把 interruptBanner 也清掉，所以 banner 必须在 reset 之后设置
-        setDevTaskRunning(false);
-        setAutoTestRunning(false);
-        setAutoTestLatestProgress(null);
-        clearDevProgress();
-        resetAutoTestPlan();
         if (state.autoTestRunning) {
-          setInterruptBanner({
-            reason: signal.message,
-            retryAt: Date.now() + 5_000,
+          setAutoTestRunning(false);
+          setAutoTestLatestProgress(null);
+          resetAutoTestPlan();
+          // 注意：reset 路径会把 interruptBanner 也清掉，所以 banner 必须在 reset 之后设置
+          // v0.1.02 P0-3：累计自动重试次数，到达上限后停止自动重试，要求用户手动重试
+          const nextRetryCount = state.autoTestRetryCount + 1;
+          incrementAutoTestRetry();
+          // v3.2.1 P1-6：自动重试时在聊天流追加系统消息，让用户清楚知道当前在第几次重试
+          // 之前只显示 amber banner，用户容易忽略；现在显式告知。
+          pushMessage({
+            role: 'system',
+            content: `🔁 自动测试第 ${nextRetryCount}/${AUTO_TEST_MAX_RETRIES} 次重试（连续失败 ${nextRetryCount} 次）`,
+            timestamp: new Date().toISOString(),
           });
+          if (nextRetryCount > AUTO_TEST_MAX_RETRIES) {
+            // 已达上限：banner 显示「请手动重试」，retryAt=null 禁止自动倒计时
+            setInterruptBanner({
+              reason: `${signal.message}（已连续失败 ${AUTO_TEST_MAX_RETRIES} 次，请检查后手动重试）`,
+              retryAt: null,
+            });
+            pushMessage({
+              role: 'system',
+              content: `⛔ 自动重试已达 ${AUTO_TEST_MAX_RETRIES} 次上限，请检查后手动重试。`,
+              timestamp: new Date().toISOString(),
+            });
+          } else {
+            // 指数退避：5s / 10s / 20s / 40s（封顶 60s）
+            const delay = Math.min(
+              AUTO_TEST_RETRY_CAP_MS,
+              AUTO_TEST_RETRY_BASE_MS * Math.pow(2, nextRetryCount - 1),
+            );
+            setInterruptBanner({
+              reason: signal.message,
+              retryAt: Date.now() + delay,
+            });
+          }
+          return;
         }
+        // 开发任务失败：复位"开发中"状态并清空进度，引导卡回到"是否继续"，允许重试。
+        // 不要碰 autoTest* 状态机字段——开发失败与自动测试状态机是平行的，互不干扰。
+        // 但 autoTestLatestProgress 属于显示态（挂在卡片上），dev 失败时残留会让用户
+        // 误以为"测试还在跑"，所以同步清掉。
+        // v3.2.1 修订：扩大清理条件——只要「不在 autoTestRunning 中」就清 devProgress + autoTestLatestProgress，
+        // 不强求 devTaskRunning=true。因为开发失败可能在 devTaskRunning=false 的瞬态发生
+        // （已结束但 devProgress 还有尾巴），不清理会让用户看到"测试进行中 / 还在跑命令"假象。
+        if (state.devTaskRunning) {
+          setDevTaskRunning(false);
+        }
+        clearDevProgress();
+        setAutoTestLatestProgress(null);
       }
     });
 
@@ -181,5 +234,7 @@ export function useChatEvents(): void {
     setAutoTestLastSummary,
     setInterruptBanner,
     resetAutoTestPlan,
+    incrementAutoTestRetry,
+    resetAutoTestRetry,
   ]);
 }

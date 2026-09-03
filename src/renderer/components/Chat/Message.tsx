@@ -149,6 +149,23 @@ export default function Message({
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className="max-w-[80%]">
+        {/* 修复 P0-4：当用户消息带了元素上下文时，在气泡顶部渲染一行窄角标，
+            让用户看见"这条消息是关于哪个元素的"，避免 DraggableChat 在另一处继续追问时
+            上下文错位（用户以为在说别的，AI 实际在改这个元素）。
+            只对元素上下文类型的消息渲染，普通用户消息不展示。 */}
+        {isUser && message.metadata?.contextElement && (
+          <div
+            className="mb-1 flex items-center gap-1 rounded-br-xl rounded-tl-xl bg-brand/15 px-2 py-0.5 text-[11px] text-brand"
+            title={`选择器：${message.metadata.contextElement.selector}`}
+            data-testid="message-context-element-chip"
+          >
+            <span aria-hidden="true">🎯</span>
+            <span className="font-medium">关于</span>
+            <span className="truncate font-mono">
+              {message.metadata.contextElement.description}
+            </span>
+          </div>
+        )}
         <div
           className={`rounded-xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${
             isUser

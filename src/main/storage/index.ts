@@ -226,6 +226,25 @@ export class FileStorageManager implements StorageManager {
     return dir;
   }
 
+  /**
+   * v0.1.02 P1-2：根据实际占用的目录名反推"唯一显示名"，让 meta.name 与目录名严格一致。
+   * resolveProjectDir 在重名时会返回 `base-2/-3/…`，因此 meta.name 必须同步追加后缀，
+   * 否则渲染层 UI（欢迎页 / ProjectSwitcher）展示的是原始 name，文件系统却是带后缀的目录，
+   * 形成 UI 承诺和实际行为的脱节（验收报告 P1-2）。
+   */
+  private dirToDisplayName(dir: string, originalName: string): string {
+    const base = sanitizeProjectFolderName(originalName);
+    const last = path.basename(dir);
+    if (last === base) return originalName;
+    // 后缀形如 "-2" / "-3"，保留原始大小写（base 由 sanitizeFolder 推导，不一定等于原始 name）
+    const suffix = last.slice(base.length);
+    if (/^-\d+$/.test(suffix)) {
+      return `${originalName}${suffix}`;
+    }
+    // 极端情况（sanitize 后的 base 长度变化）：回退到目录名
+    return last;
+  }
+
   // ========== 项目管理 ==========
   async createProject(name: string, options: ProjectCreateOptions = {}): Promise<ProjectMeta> {
     await this.ensureIndexLoaded();
@@ -240,13 +259,17 @@ export class FileStorageManager implements StorageManager {
     await fs.mkdir(path.join(dir, 'code'), { recursive: true });
     await fs.mkdir(path.join(dir, 'exports'), { recursive: true });
 
+    // v0.1.02 P1-2：唯一显示名 = 原始 name（无冲突）或 `${name}-N`（冲突时），
+    // 与实际目录名严格同步，避免 UI 提示与文件系统行为不一致。
+    const displayName = this.dirToDisplayName(dir, name);
+
     // 先登记索引再写文件（metaPath 等路径解析依赖索引）
-    this.projectIndex[id] = { name, dir };
+    this.projectIndex[id] = { name: displayName, dir };
     await this.persistIndex();
 
     const meta: ProjectMeta = {
       id,
-      name,
+      name: displayName,
       description: options.description,
       status: 'draft',
       template: options.template,

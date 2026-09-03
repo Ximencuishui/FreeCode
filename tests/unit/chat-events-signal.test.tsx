@@ -22,7 +22,6 @@ interface ElectronChatMock {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var window: Window & {
     electron: { chat: ElectronChatMock };
   };

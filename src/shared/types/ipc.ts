@@ -29,6 +29,8 @@ export const IpcChannels = {
   projectResumeDevelopment: 'project:resume-development',
   projectAutoTest: 'project:auto-test',
   projectConvertToLocalMode: 'project:convert-to-local-mode',
+  /** v3.2.2 P0-5：取消指定项目的开发任务（切项目时由前端调用） */
+  projectCancelDevelopment: 'project:cancel-development',
   /** 扫描项目根目录、docs 与常见图片素材，返回可阅读条目 */
   projectListDocuments: 'project:list-documents',
   /** 按主进程扫描到的相对路径读取 Markdown 或图片素材 */
@@ -38,10 +40,14 @@ export const IpcChannels = {
   // 导出
   exportStart: 'export:start',
   exportComplete: 'export:complete',
+  /** v3.2.2 P0-5：取消指定项目的导出任务（切项目时由前端调用） */
+  exportCancel: 'export:cancel',
   // 智能打包（electron-builder 桌面端安装包）
   packageStart: 'package:start',
   packageProgress: 'package:progress',
   packageComplete: 'package:complete',
+  /** v3.2.2 P0-5：取消指定项目的打包任务（切项目时由前端调用） */
+  packageCancel: 'package:cancel',
   // 云数据库（一键申请）
   dbProvision: 'db:provision',
   // 设置

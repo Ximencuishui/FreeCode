@@ -5,5 +5,17 @@
     "jsx": "react-jsx",
     "types": ["vite/client"]
   },
-  "include": ["src/renderer/**/*", "src/shared/**/*"]
+  "include": ["src/renderer/**/*", "src/shared/**/*"],
+  // 覆盖 base 的 exclude（base 把 src/renderer/**/* 排除掉以避免它在 main/preload 的构建里被误编）。
+  // renderer 项目需要重新加入 renderer 源码 + shared 类型；其它目录仍按 base 思路排除掉。
+  "exclude": [
+    "tests/**/*",
+    "e2e/**/*",
+    "node_modules",
+    "dist",
+    "release",
+    "resources",
+    ".pnpm-store",
+    ".npm-cache"
+  ]
 }

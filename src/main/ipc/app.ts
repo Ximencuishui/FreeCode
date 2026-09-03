@@ -1,5 +1,6 @@
 import { app, ipcMain, shell } from 'electron';
 import path from 'node:path';
+import os from 'node:os';
 import { IpcChannels } from '../../shared/types/ipc';
 import type { AppInfo } from '../../shared/types/app';
 import type { DSHService } from '../dsh/service';
@@ -43,13 +44,18 @@ export function registerAppIpc(dsh?: DSHService): void {
       if (!target || typeof target !== 'string') {
         return { success: false };
       }
+      // v3.2.1 P1-12：展开 `~/` 到用户主目录——shell.showItemInFolder 在 macOS / Linux 上
+      // 不会自动解析波浪号，会把字面 "~/" 当成相对路径，弹错。
+      const expanded = target.startsWith('~/')
+        ? path.join(os.homedir(), target.slice(2))
+        : target;
       try {
-        shell.showItemInFolder(target);
+        shell.showItemInFolder(expanded);
         return { success: true };
       } catch {
         // fallback：父目录存在就 openPath
         try {
-          const parent = path.dirname(target);
+          const parent = path.dirname(expanded);
           await shell.openPath(parent);
           return { success: true };
         } catch {

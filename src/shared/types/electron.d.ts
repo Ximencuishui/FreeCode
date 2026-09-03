@@ -116,6 +116,8 @@ declare global {
         ) => Promise<ProjectResumeDevelopmentResult>;
         /** 自动测试：编写测试用例、运行检查并审计代码，输出测试报告 */
         autoTest: (params: ProjectAutoTestParams) => Promise<ProjectAutoTestResult>;
+        /** v3.2.2 P0-5：取消指定项目的开发任务（切项目时调用，让旧项目 DSH 进程中断） */
+        cancelDevelopment: (params: { projectId: string }) => Promise<{ success: boolean; cancelled: boolean }>;
         /** 转本地模式：把 requirements.authentication 改为 none 并打回 planned，
          *  让用户在对话页重新触发「确认 V1 计划 → 重新开发」以应用新 prompt 生成纯前端版本 */
         convertToLocalMode: (
@@ -131,6 +133,8 @@ declare global {
       export: {
         start: (params: ExportStartParams) => Promise<ExportStartResult>;
         onComplete: (callback: (data: ExportCompleteEvent) => void) => Unsubscribe;
+        /** v3.2.2 P0-5：取消指定项目的导出任务（切项目时调用） */
+        cancel: (params: { projectId: string }) => Promise<{ success: boolean; cancelled: boolean }>;
       };
       package: {
         /** 启动桌面端打包任务；产物路径通过 onComplete 推送 */
@@ -139,6 +143,8 @@ declare global {
         onProgress: (callback: (data: PackageProgressEvent) => void) => Unsubscribe;
         /** 订阅打包完成事件（success/failed/cancelled） */
         onComplete: (callback: (data: PackageCompleteEvent) => void) => Unsubscribe;
+        /** v3.2.2 P0-5：取消指定项目的打包任务（切项目时调用） */
+        cancel: (params: { projectId: string }) => Promise<{ success: boolean; cancelled: boolean }>;
       };
       db: {
         /** 一键申请云数据库（调用云服务商 API 自动创建，返回连接信息） */

@@ -1,5 +1,6 @@
 import { Developer } from '../../src/main/dev/developer';
 import * as runtimeModule from '../../src/main/dev/runtime';
+import { DSHError } from '../../src/main/dsh/errors';
 import type { StorageManager, ProjectMeta, Requirements, ChatMessage } from '../../src/main/storage/types';
 
 /** 内存版 StorageManager 测试桩 */
@@ -217,5 +218,113 @@ describe('开发执行器（Developer）', () => {
     expect(spy).toHaveBeenCalledTimes(1);
 
     spy.mockRestore();
+  });
+
+  /**
+   * v3.2.2 P0-5：后台任务取消（Developer.cancel）+ P0-5-1：TASK_CANCELLED 识别为静默成功。
+   */
+  describe('取消（P0-5 + P0-5-1）', () => {
+    it('cancel 未注册的项目返回 false（幂等）', () => {
+      const developer = new Developer({ storage: new FakeStorage(), dsh: { runTask: jest.fn() } });
+      expect(developer.cancel('never-started')).toBe(false);
+      expect(developer.cancel('never-started')).toBe(false); // 二次幂等
+    });
+
+    it('cancel 已注册项目调用 controller.abort（通过 DSH 抛 TASK_CANCELLED 模拟）', async () => {
+      const storage = new FakeStorage();
+      const meta = await storage.createProject('测试');
+      await storage.saveRequirements(meta.id, makeRequirements(meta.id));
+
+      // DSH runTask 抛 TASK_CANCELLED，模拟已注册 controller 被 abort 的下游效果
+      const dsh = {
+        runTask: jest.fn(async () => {
+          throw new DSHError('TASK_CANCELLED', '任务已被中断');
+        }),
+      };
+      const developer = new Developer({ storage, dsh });
+
+      const outcome = await new Promise<{ success: boolean; cancelled?: boolean; message: string }>(
+        (resolve) => developer.startDevelopment(meta.id, resolve as never),
+      );
+
+      // P0-5-1：cancelled=true 让 IPC 层不广播给用户
+      expect(outcome.cancelled).toBe(true);
+      expect(outcome.success).toBe(false); // 不算成功
+      expect(outcome.message).toBe('任务已取消');
+    });
+
+    it('cancel 期间 controller 信号被 abort → DSH 接到 aborted signal', async () => {
+      const storage = new FakeStorage();
+      const meta = await storage.createProject('测试');
+      await storage.saveRequirements(meta.id, makeRequirements(meta.id));
+
+      let capturedSignal: AbortSignal | undefined;
+      // DSH runTask 检查 signal.aborted 后抛 TASK_CANCELLED
+      const dsh = {
+        runTask: jest.fn(async (_dir, _task, _onProgress, signal?: AbortSignal) => {
+          capturedSignal = signal;
+          // 等待 cancel 后 signal 变 aborted
+          await new Promise<void>((resolve) => {
+            const t = setInterval(() => {
+              if (signal?.aborted) {
+                clearInterval(t);
+                resolve();
+              }
+            }, 5);
+          });
+          throw new DSHError('TASK_CANCELLED', '任务已被中断');
+        }),
+      };
+      const developer = new Developer({ storage, dsh });
+
+      // 异步启动开发任务
+      void new Promise<void>((resolve) =>
+        developer.startDevelopment(meta.id, () => resolve()),
+      );
+
+      // 等注册到 Map 后取消
+      await new Promise<void>((r) => setTimeout(r, 20));
+      expect(developer.isActive(meta.id)).toBe(true);
+      const cancelled = developer.cancel(meta.id);
+      expect(cancelled).toBe(true);
+
+      // 等 finish 清理 Map
+      await new Promise<void>((r) => setTimeout(r, 100));
+      expect(developer.isActive(meta.id)).toBe(false);
+      expect(capturedSignal?.aborted).toBe(true);
+    });
+
+    it('cancel 后被新启动任务占位 → 旧 cancel 不误杀新任务', async () => {
+      const storage = new FakeStorage();
+      const meta = await storage.createProject('测试');
+      await storage.saveRequirements(meta.id, makeRequirements(meta.id));
+
+      // 第一轮 DSH：捕获 signal → 等 cancel → 抛 TASK_CANCELLED
+      const firstAbort: { signal?: AbortSignal } = {};
+      const dsh1 = {
+        runTask: jest.fn(async (_d, _t, _p, signal?: AbortSignal) => {
+          firstAbort.signal = signal;
+          await new Promise<void>((r) => setTimeout(r, 100));
+          if (signal?.aborted) throw new DSHError('TASK_CANCELLED', '已中断');
+          return { reply: 'done', exitCode: 0 };
+        }),
+      };
+      const developer = new Developer({ storage, dsh: dsh1 });
+
+      void new Promise<void>((r) => developer.startDevelopment(meta.id, () => r()));
+      await new Promise<void>((r) => setTimeout(r, 20));
+      developer.cancel(meta.id);
+      // 等第一轮 finish 清理 Map
+      await new Promise<void>((r) => setTimeout(r, 150));
+
+      // 第二轮：DSH runTask 立即成功
+      const dsh2 = { runTask: jest.fn(async () => ({ reply: 'done2', exitCode: 0 })) };
+      const developer2 = new Developer({ storage, dsh: dsh2 });
+      const outcome = await new Promise<{ success: boolean; cancelled?: boolean }>((resolve) =>
+        developer2.startDevelopment(meta.id, resolve as never),
+      );
+      expect(outcome.success).toBe(true);
+      expect(outcome.cancelled).toBeUndefined();
+    });
   });
 });

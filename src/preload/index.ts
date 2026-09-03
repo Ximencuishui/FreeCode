@@ -48,13 +48,20 @@ const electronApi: Window['electron'] = {
     listDocuments: (params) => ipcRenderer.invoke(IpcChannels.projectListDocuments, params),
     readDocument: (params) => ipcRenderer.invoke(IpcChannels.projectReadDocument, params),
     openAsset: (params) => ipcRenderer.invoke(IpcChannels.projectOpenAsset, params),
+    // v3.2.2 P0-5：取消指定项目的开发任务（切项目时由前端调用，避免旧项目 AI 继续烧 token）
+    cancelDevelopment: (params) =>
+      ipcRenderer.invoke(IpcChannels.projectCancelDevelopment, params),
   },
   export: {
     start: (params) => ipcRenderer.invoke(IpcChannels.exportStart, params),
+    // v3.2.2 P0-5：取消指定项目的导出任务（切项目时由前端调用，避免旧项目导出继续消耗 CPU/磁盘）
+    cancel: (params) => ipcRenderer.invoke(IpcChannels.exportCancel, params),
     onComplete: (callback) => subscribe(IpcChannels.exportComplete, callback),
   },
   package: {
     start: (params) => ipcRenderer.invoke(IpcChannels.packageStart, params),
+    // v3.2.2 P0-5：取消指定项目的打包任务（切项目时由前端调用）
+    cancel: (params) => ipcRenderer.invoke(IpcChannels.packageCancel, params),
     onProgress: (callback) => subscribe(IpcChannels.packageProgress, callback),
     onComplete: (callback) => subscribe(IpcChannels.packageComplete, callback),
   },

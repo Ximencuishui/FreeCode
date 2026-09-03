@@ -600,6 +600,8 @@ export function registerProjectIpc(
         .startDevelopment(
           project.id,
           (outcome) => {
+            // v3.2.2 P0-5-1：主动取消（切项目/用户中断）不广播给用户，避免红色 error 提示
+            if (outcome.cancelled) return;
             broadcastSignal({
               type: outcome.success ? 'info' : 'error',
               message: outcome.message,
@@ -834,6 +836,8 @@ export function registerProjectIpc(
         .startDevelopment(
           params.projectId,
           (outcome) => {
+            // v3.2.2 P0-5-1：主动取消（切项目/用户中断）不广播给用户，避免红色 error 提示
+            if (outcome.cancelled) return;
             broadcastSignal({
               type: outcome.success ? 'info' : 'error',
               message: outcome.message,
@@ -866,7 +870,11 @@ export function registerProjectIpc(
   // 转本地模式：把 authentication 改为 none 并把状态打回 planned，让用户重新走
   // 「确认 V1 计划 → 重新开发」以应用本地模式 prompt 生成纯前端应用。
   // 适用条件：项目已确认需求、authentication 不是 none、状态为 planned/developing/ready/exported。
-  // 不直接调 Developer.startDevelopment —— 让用户在对话页主动点「确认 V1 计划，开始开发」，
+  //
+  // v0.1.02 P0-2：必须清空旧 versionPlan（旧 plan 基于 password authentication 生成，
+  // 包含「账号系统/登录页/注册页」等不属于本地模式的 V1 功能），并主动触发 planner 重新生成。
+  // 若保留旧 plan，用户点「确认 V1 计划，开始开发」时 Developer 会按旧 plan 写出仍含登录页的应用。
+  // 同时不直接调 Developer.startDevelopment —— 让用户在对话页主动点「确认 V1 计划，开始开发」，
   // 避免静默重跑覆盖用户预期。
   handleIpc<ProjectConvertToLocalModeParams, ProjectConvertToLocalModeResult>(
     IpcChannels.projectConvertToLocalMode,
@@ -901,17 +909,72 @@ export function registerProjectIpc(
       };
       await storage.saveRequirements(params.projectId, updated);
 
-      // 2) 状态打回 planned（保留 versionPlan 让重新开发复用；用户后续点「确认 V1 计划」重启开发）
-      await storage.updateProjectMeta(params.projectId, { status: 'planned' });
+      // 2) v0.1.02 P0-2：清空旧 versionPlan 并打回 planned。
+      // 旧 plan 强依赖于 password authentication 的 V1 划分（含账号/登录页等模块），
+      // 转本地模式后这些模块不再需要，必须重新生成。
+      await storage.updateProjectMeta(params.projectId, {
+        status: 'planned',
+        versionPlan: null,
+      });
 
-      // 3) 主动广播信号：通知渲染端「已转本地模式」以便切回对话页
+      // 3) 重新回填 docs/requirements.md 并刷新 README 的"V1 核心功能"占位章节
+      // （plan 还没生成时只刷新索引，V1 章节会留 "待生成" 提示）
+      fireDocWrite('[convertToLocalMode] 已写入需求文档', writeRequirementsDoc(storage, params.projectId));
+      fireDocWrite('[convertToLocalMode] 已刷新 README', writeReadmeDoc(storage, params.projectId));
+
+      // 4) v0.1.02 P0-2：主动触发 planner 重新生成基于本地模式的版本计划。
+      // 生成期间用户在对话页会看到"本地模式版本计划生成中"，完成后再点确认进入开发。
+      void planner
+        .generatePlan(params.projectId, (outcome) => {
+          broadcastSignal({
+            type: outcome.success ? 'info' : 'error',
+            message: outcome.success
+              ? '本地模式版本计划已重新生成，可在对话页确认 V1 计划'
+              : `本地模式版本计划重新生成失败：${outcome.message}`,
+            timestamp: new Date().toISOString(),
+          });
+          if (outcome.success) {
+            fireDocWrite(
+              '[convertToLocalMode] 已写入版本计划文档',
+              writeVersionPlanDoc(storage, params.projectId),
+            );
+            fireDocWrite(
+              '[convertToLocalMode] 已刷新 README',
+              writeReadmeDoc(storage, params.projectId),
+            );
+          }
+        })
+        .catch((error) => {
+          console.warn('[FreeCoder] 本地模式重新生成版本计划失败：', error);
+          broadcastSignal({
+            type: 'error',
+            message: '本地模式版本计划重新生成失败，请点击「重新规划」',
+            timestamp: new Date().toISOString(),
+          });
+        });
+
+      // 5) 主动广播信号：通知渲染端「已转本地模式」以便切回对话页
       broadcastSignal({
         type: 'info',
-        message: '已切换为本地模式，请在对话页确认 V1 计划以重新生成应用',
+        message: '已切换为本地模式，请等待版本计划重新生成后确认 V1 计划',
         timestamp: new Date().toISOString(),
       });
 
       return { success: true, message: '已切换为本地模式' };
+    },
+  );
+
+  // v3.2.2 P0-5：取消指定项目的开发任务（切项目时由前端调用）
+  // 通过 AbortController 触发 DSH runTask 抛 TASK_CANCELLED，从而优雅停止 Agent。
+  handleIpc<{ projectId: string }, { success: boolean; cancelled: boolean }>(
+    IpcChannels.projectCancelDevelopment,
+    async (_event, params) => {
+      const projectId = params?.projectId?.trim();
+      if (!projectId) {
+        throw new IpcError('INVALID_PARAMS', '项目 ID 不能为空');
+      }
+      const cancelled = developer.cancel(projectId);
+      return { success: true, cancelled };
     },
   );
 }

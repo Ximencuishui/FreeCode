@@ -63,67 +63,107 @@ CMD ["nginx", "-g", "daemon off;"]
 
 /** 导出部署包服务 */
 export class ExportService {
+  /** v3.2.2 P0-5：按项目保存当前导出任务的 AbortController，供 cancel(projectId) 中断。
+   *  取消时直接 abort 控制器：fs.cp / fs.writeFile 不接受外部 signal，
+   *  所以在每个步骤之间检查 signal.aborted 并抛 CancellationError，保证临时目录被清理。
+   */
+  private readonly activeControllers = new Map<string, AbortController>();
+
   constructor(private readonly storage: StorageManager) {}
+
+  /**
+   * v3.2.2 P0-5：取消指定项目的导出任务。返回是否有任务被中断。
+   * 已复制/写入的部分文件保留（无法在 fs.cp 中途 abort），但后续步骤会跳过，
+   * finally 里的 fs.rm tmpDir 会清理临时工作目录。
+   */
+  cancel(projectId: string): boolean {
+    const controller = this.activeControllers.get(projectId);
+    if (!controller) return false;
+    controller.abort('project-cancelled');
+    return true;
+  }
 
   /** 导出项目为部署包 zip，返回 zip 路径 */
   async exportProject(projectId: string, options: ExportOptions = {}): Promise<ExportResult> {
-    const project = await this.storage.getProject(projectId);
-    if (!project) {
-      throw new IpcError('PROJECT_NOT_FOUND', '项目不存在');
-    }
-
-    const includeDocker = options.includeDocker ?? true;
-    const config: DeployConfig = options.config ?? createDefaultDeployConfig();
-    const exportId = timestampId();
-    const codePath = this.storage.getProjectCodePath(projectId);
-    const projectDir = this.storage.getProjectDir(projectId);
-    const exportsDir = path.join(projectDir, 'exports');
-    const tmpRoot = path.join(projectDir, '..', '..', 'tmp');
-    const tmpDir = path.join(tmpRoot, `export-${exportId}`);
+    // v3.2.2 P0-5：每个项目独立 AbortController，存到 Map 供 cancel 查询
+    const controller = new AbortController();
+    this.activeControllers.set(projectId, controller);
+    const throwIfCancelled = (): void => {
+      if (controller.signal.aborted) {
+        throw new ExportCancelledError();
+      }
+    };
 
     try {
-      await fs.mkdir(tmpDir, { recursive: true });
-      await fs.mkdir(exportsDir, { recursive: true });
-
-      // 1. 复制项目代码到 app/
-      const appDir = path.join(tmpDir, 'app');
-      await fs.cp(codePath, appDir, { recursive: true, force: true });
-
-      // 2. 生成部署配置文件（密钥一次性生成，保证 .env 与 docker-compose 一致）
-      const rendered = renderDeployFiles(config, {
-        appName: project.name,
-        port: 3000,
-        jwtSecret: crypto.randomBytes(32).toString('hex'),
-        dbPassword: crypto.randomBytes(16).toString('hex'),
-      });
-
-      if (includeDocker) {
-        // 有 server.js（后端运行时）→ Node 镜像；否则回退 nginx 静态镜像
-        const hasBackend = await fs
-          .access(path.join(appDir, 'server.js'))
-          .then(() => true)
-          .catch(() => false);
-        const dockerfile = hasBackend ? buildNodeDockerfile() : buildStaticDockerfile();
-        await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfile, 'utf-8');
-        await fs.writeFile(path.join(tmpDir, 'docker-compose.yml'), rendered.compose, 'utf-8');
-        await fs.writeFile(path.join(tmpDir, '.env'), rendered.env, 'utf-8');
+      const project = await this.storage.getProject(projectId);
+      if (!project) {
+        throw new IpcError('PROJECT_NOT_FOUND', '项目不存在');
       }
-      await fs.writeFile(path.join(tmpDir, 'README.md'), rendered.readme, 'utf-8');
-      await fs.writeFile(path.join(tmpDir, 'deploy-guide.html'), rendered.guideHtml, 'utf-8');
 
-      // 3. 打包 zip
-      const zipPath = path.join(exportsDir, `${exportId}.zip`);
-      this.zipDirectory(tmpDir, zipPath);
+      throwIfCancelled();
+      const includeDocker = options.includeDocker ?? true;
+      const config: DeployConfig = options.config ?? createDefaultDeployConfig();
+      const exportId = timestampId();
+      const codePath = this.storage.getProjectCodePath(projectId);
+      const projectDir = this.storage.getProjectDir(projectId);
+      const exportsDir = path.join(projectDir, 'exports');
+      const tmpRoot = path.join(projectDir, '..', '..', 'tmp');
+      const tmpDir = path.join(tmpRoot, `export-${exportId}`);
 
-      // 4. 更新导出计数
-      await this.storage.updateProjectMeta(projectId, {
-        exportCount: project.exportCount + 1,
-        status: 'exported',
-      });
+      try {
+        await fs.mkdir(tmpDir, { recursive: true });
+        await fs.mkdir(exportsDir, { recursive: true });
+        throwIfCancelled();
 
-      return { exportId, zipPath, exportCount: project.exportCount + 1 };
+        // 1. 复制项目代码到 app/
+        const appDir = path.join(tmpDir, 'app');
+        await fs.cp(codePath, appDir, { recursive: true, force: true });
+        throwIfCancelled();
+
+        // 2. 生成部署配置文件（密钥一次性生成，保证 .env 与 docker-compose 一致）
+        const rendered = renderDeployFiles(config, {
+          appName: project.name,
+          port: 3000,
+          jwtSecret: crypto.randomBytes(32).toString('hex'),
+          dbPassword: crypto.randomBytes(16).toString('hex'),
+        });
+        throwIfCancelled();
+
+        if (includeDocker) {
+          // 有 server.js（后端运行时）→ Node 镜像；否则回退 nginx 静态镜像
+          const hasBackend = await fs
+            .access(path.join(appDir, 'server.js'))
+            .then(() => true)
+            .catch(() => false);
+          const dockerfile = hasBackend ? buildNodeDockerfile() : buildStaticDockerfile();
+          await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfile, 'utf-8');
+          await fs.writeFile(path.join(tmpDir, 'docker-compose.yml'), rendered.compose, 'utf-8');
+          await fs.writeFile(path.join(tmpDir, '.env'), rendered.env, 'utf-8');
+        }
+        await fs.writeFile(path.join(tmpDir, 'README.md'), rendered.readme, 'utf-8');
+        await fs.writeFile(path.join(tmpDir, 'deploy-guide.html'), rendered.guideHtml, 'utf-8');
+        throwIfCancelled();
+
+        // 3. 打包 zip
+        const zipPath = path.join(exportsDir, `${exportId}.zip`);
+        this.zipDirectory(tmpDir, zipPath);
+        throwIfCancelled();
+
+        // 4. 更新导出计数
+        await this.storage.updateProjectMeta(projectId, {
+          exportCount: project.exportCount + 1,
+          status: 'exported',
+        });
+
+        return { exportId, zipPath, exportCount: project.exportCount + 1 };
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
     } finally {
-      await fs.rm(tmpDir, { recursive: true, force: true });
+      // v3.2.2 P0-5：仅当 Map 里仍是当前 controller 才删除，避免 cancel 后被并发 finally 误删新任务
+      if (this.activeControllers.get(projectId) === controller) {
+        this.activeControllers.delete(projectId);
+      }
     }
   }
 
@@ -132,5 +172,16 @@ export class ExportService {
     const zip = new AdmZip();
     zip.addLocalFolder(sourceDir);
     zip.writeZip(zipPath);
+  }
+}
+
+/**
+ * v3.2.2 P0-5：导出流程被取消时抛出的内部错误，IPC 层透传为 TASK_CANCELLED。
+ * 单独定义类便于在调用链里识别"取消 vs 其他失败"。
+ */
+export class ExportCancelledError extends Error {
+  constructor() {
+    super('导出已取消');
+    this.name = 'ExportCancelledError';
   }
 }

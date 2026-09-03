@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { RequirementSummary, ProjectStatus } from '@shared/types/project';
+import ConfirmDialog from '../common/ConfirmDialog';
 
 interface RequirementCardProps {
   requirements: RequirementSummary;
@@ -77,6 +78,8 @@ export default function RequirementCard({
   const [draft, setDraft] = useState<RequirementSummary>(requirements);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // v3.2.1 P1-1：替代 window.confirm 的二次确认状态。null = 未弹窗。
+  const [pendingEditPhase, setPendingEditPhase] = useState<string | null>(null);
 
   const confirmed: boolean =
     requirements.confirmed ||
@@ -96,6 +99,11 @@ export default function RequirementCard({
     setDraft({ ...requirements });
     setError('');
     setEditing(true);
+  };
+
+  const confirmPendingEdit = () => {
+    setPendingEditPhase(null);
+    startEdit();
   };
 
   const saveEdit = async () => {
@@ -138,11 +146,32 @@ export default function RequirementCard({
           <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-600">待确认</span>
         )}
       </div>
-      {!confirmed && onUpdate && status === 'draft' && (
+      {/* v0.1.02 P2-2：开发中/已就绪状态也能编辑需求（PRD 2.1「用户可随时说'跳过'或'我也不知道'」隐含支持随时调整）。
+          之前 !confirmed && status === 'draft' 只在草稿期可编辑，开发中用户发现漏写功能就只能重新确认一遍。
+          现在 draft 状态直接进入编辑；planned/已确认状态下点击按钮先弹确认（开发可能在跑，要先警告再保存）。
+          exported 状态拒绝编辑（项目已部署到外部，再改需求意义不大）。 */}
+      {onUpdate && status !== 'exported' && (
         <div className="mb-2 text-right">
           <button
             type="button"
-            onClick={() => (editing ? setEditing(false) : startEdit())}
+            onClick={() => {
+              if (editing) {
+                setEditing(false);
+                return;
+              }
+              // planned/developing/ready：弹确认弹窗，避免用户误操作打断正在跑的开发
+              if (status && status !== 'draft') {
+                const phase =
+                  status === 'planned'
+                    ? '版本计划已生成'
+                    : status === 'developing'
+                      ? '应用正在开发'
+                      : '应用已就绪';
+                setPendingEditPhase(phase);
+              } else {
+                startEdit();
+              }
+            }}
             className="rounded border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 transition-colors hover:bg-slate-50"
           >
             {editing ? '取消编辑' : '✏️ 编辑需求'}
@@ -405,6 +434,25 @@ export default function RequirementCard({
       {status === 'ready' && (
         <div className="mt-3 text-center text-xs text-green-600">✅ 应用已就绪，点击左侧「预览」查看</div>
       )}
+
+      {/* v3.2.1 P1-1：自研确认弹窗替代 window.confirm。
+          v3.2.2 P0-3：弹窗文案根据「核心字段 vs 附属字段」是否改动给出不同提示——
+          改核心字段（目标 / 目标用户 / 核心功能 / 关键流程）会触发项目状态回滚到草稿；
+          只改附属字段（视觉风格 / 页面 / 设备 等）则保留状态，避免误吓用户。 */}
+      <ConfirmDialog
+        open={pendingEditPhase !== null}
+        title="确认编辑已确认的需求？"
+        description={
+          pendingEditPhase
+            ? `当前状态：${pendingEditPhase}。\n\n若改动了一句话目标 / 目标用户 / 核心功能 / 关键流程，系统会把项目回滚到「草稿」并清空版本计划，需要重新确认需求后才能继续开发。\n\n仅修改附属字段（视觉风格 / 页面 / 设备 / 登录方式等）不会触发回滚。\n\n如需让改动直接驱动开发，请保存后到对话里说「按新需求重新开发」。`
+            : ''
+        }
+        confirmLabel="继续编辑"
+        cancelLabel="先不编辑"
+        tone="default"
+        onCancel={() => setPendingEditPhase(null)}
+        onConfirm={confirmPendingEdit}
+      />
     </div>
   );
 }

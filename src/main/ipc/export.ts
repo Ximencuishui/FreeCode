@@ -2,7 +2,7 @@ import { BrowserWindow } from 'electron';
 import { IpcChannels } from '../../shared/types/ipc';
 import type { ExportStartParams, ExportStartResult, ExportCompleteEvent } from '../../shared/types/export';
 import type { StorageManager } from '../storage/types';
-import { ExportService } from '../export/service';
+import { ExportService, ExportCancelledError } from '../export/service';
 import { handleIpc, IpcError } from './helpers';
 
 /** 向所有窗口推送 export:complete 事件 */
@@ -46,6 +46,16 @@ export function registerExportIpc(storage: StorageManager): void {
         });
       })
       .catch((err) => {
+        // v3.2.2 P0-5：取消属于正常路径（前端在切项目时触发），不算失败。
+        // status='cancelled' 让渲染层知道这是被主动取消的，不用弹"导出失败"提示。
+        if (err instanceof ExportCancelledError) {
+          broadcastComplete({
+            exportId,
+            status: 'cancelled',
+            error: err.message,
+          });
+          return;
+        }
         broadcastComplete({
           exportId,
           status: 'failed',
@@ -55,4 +65,17 @@ export function registerExportIpc(storage: StorageManager): void {
 
     return { success: true, exportId };
   });
+
+  // v3.2.2 P0-5：取消指定项目的导出任务（切项目时由前端调用）
+  handleIpc<{ projectId: string }, { success: boolean; cancelled: boolean }>(
+    IpcChannels.exportCancel,
+    async (_event, params) => {
+      const projectId = params?.projectId?.trim();
+      if (!projectId) {
+        throw new IpcError('INVALID_PARAMS', '项目 ID 不能为空');
+      }
+      const cancelled = exporter.cancel(projectId);
+      return { success: true, cancelled };
+    },
+  );
 }

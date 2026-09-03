@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { ResumeGuide, ResumeAction } from '../../store/chat';
 import { useUiStore } from '../../store/ui';
 import type { ElementInfo, ElementSelectResult } from '@shared/types/preview';
@@ -15,6 +15,7 @@ import AutoTestPlanCard from '../Chat/AutoTestPlanCard';
 import AutoTestSummaryCard from '../Chat/AutoTestSummaryCard';
 import { formatDuration } from '../Chat/autoTestProgress';
 import AiAssistantIcon from '../AiAssistantIcon';
+import InterruptBanner from './InterruptBanner';
 
 interface AssistantPanelProps {
   /** 项目进度引导（项目恢复 / 继续下一步 / 自动测试进度等） */
@@ -69,10 +70,15 @@ interface AssistantPanelProps {
   /**
    * 测试被中断时的 amber 横幅；reason 由 DSH 信号透传，retryAt 是自动重试时间戳。
    * 进度 Tab 顶部按此渲染 InterruptBanner；倒计时到点后自动派发 onResumeAction('auto-test')。
+   * v0.1.02 P0-3：retryAt 可为 null，表示「已达重试上限，请手动重试」。
    */
-  interruptBanner?: { reason: string; retryAt: number } | null;
+  interruptBanner?: { reason: string; retryAt: number | null } | null;
   /** 主动清掉中断横幅（用户点了「取消」） */
   clearInterruptBanner?: () => void;
+  /** v3.2.1 P1-6：自动测试连续失败次数（来自 chat store 的 autoTestRetryCount） */
+  autoTestRetryCount?: number;
+  /** v3.2.1 P2-12：测试 overtime 时卡片的"立即中断"按钮回调；不传则不渲染该按钮 */
+  onStopAutoTest?: () => void;
   /** 外部覆盖样式：用于把父容器的可拖动宽度（width）应用到根 aside */
   style?: CSSProperties;
   /** 外部追加 className：一般不需要，但预留口子方便父级布局定制 */
@@ -115,6 +121,10 @@ export default function AssistantPanel({
   onOpenDeploy,
   interruptBanner = null,
   clearInterruptBanner,
+  /** v3.2.1 P1-6：自动测试连续失败次数，用于 InterruptBanner 展示「第 N/M 次重试」进度 */
+  autoTestRetryCount = 0,
+  /** v3.2.1 P2-12：测试 overtime 时卡片的"立即中断"按钮回调；不传则不渲染该按钮 */
+  onStopAutoTest,
   style,
   className = '',
 }: AssistantPanelProps) {
@@ -173,6 +183,10 @@ export default function AssistantPanel({
   const selectTab = (t: TabKey) => {
     setTab(t);
     setSeen((s) => ({ ...s, [t]: true }));
+    // v0.1.02 P0-1：同步设置全局浮窗隐藏态，避免渲染窗口期双输入框并存。
+    // 用户主动切 Tab 的场景下，必须在本帧完成 store 更新，
+    // 否则 DraggableChat 会在 selectTab 调用后下一帧才接到 hidden=true。
+    setAiChatHidden(t === 'element' && hasElement);
   };
 
   const tabClass = (t: TabKey) =>
@@ -185,9 +199,11 @@ export default function AssistantPanel({
   // 进入 🔍 元素 Tab 且已选中元素时，ElementInspector 内部已自带修改指令 MiniChat，
   // 此时通过 ui store 通知全局 AI 助理浮窗隐藏，避免两个输入框同时出现造成认知负担。
   // 切换到其他 Tab / 取消选中元素时恢复显示。
+  // v0.1.02 P0-1：使用 useLayoutEffect 而非 useEffect，确保在浏览器绘制前同步更新 store，
+  // 避免用户从其他 Tab 切到 🔍 元素时出现「双输入框共存一帧」的闪烁。
   const setAiChatHidden = useUiStore((s) => s.setAiChatHidden);
   const shouldHideAiChat = tab === 'element' && hasElement;
-  useEffect(() => {
+  useLayoutEffect(() => {
     setAiChatHidden(shouldHideAiChat);
   }, [shouldHideAiChat, setAiChatHidden]);
 
@@ -265,6 +281,10 @@ export default function AssistantPanel({
             isProcessing={isProcessing}
             interruptBanner={interruptBanner}
             clearInterruptBanner={clearInterruptBanner}
+            // v3.2.1 P1-6：把连续失败次数透传给 ProgressTab，再传给 InterruptBanner 展示「第 N/3 次重试」徽章
+            autoTestRetryCount={autoTestRetryCount}
+            // v3.2.1 P2-12：透传 overtime 时的"立即中断"回调到 ProgressTab → AutoTestPlanCard
+            onStopAutoTest={onStopAutoTest}
           />
         )}
         {tab === 'element' && (
@@ -304,6 +324,10 @@ function ProgressTab({
   isProcessing,
   interruptBanner,
   clearInterruptBanner,
+  // v3.2.1 P1-6：把连续失败次数透传给 InterruptBanner，渲染「第 N/3 次重试」徽章
+  autoTestRetryCount,
+  // v3.2.1 P2-12：overtime 时「立即中断」回调透传到 AutoTestPlanCard
+  onStopAutoTest,
 }: {
   resumeGuide: ResumeGuide | null;
   autoTestRunning: boolean;
@@ -323,8 +347,11 @@ function ProgressTab({
   lastTestFixAt: number | null;
   clearSuggestRetest?: () => void;
   isProcessing: boolean;
-  interruptBanner: { reason: string; retryAt: number } | null;
+  // v0.1.02 P0-3：interruptBanner 可为 null（AssistantPanelProps 默认 null）
+  interruptBanner: { reason: string; retryAt: number | null } | null;
   clearInterruptBanner?: () => void;
+  autoTestRetryCount: number;
+  onStopAutoTest?: () => void;
 }) {
   // 修复完成衔接：测试未在跑 + 有报告 + verdict≠pass + 最近 30 秒内有修复指令 + AI 不在处理中
   // 提示卡显示在 InterruptBanner 之下、TestReportCard 之上，确保用户先看得到「要不要再测一次」
@@ -342,7 +369,12 @@ function ProgressTab({
         {interruptBanner && (
           <InterruptBanner
             banner={interruptBanner}
+            // v3.2.1 P1-6：把连续失败次数传给横幅，渲染「第 N/3 次重试」徽章
+            retryIndex={autoTestRetryCount}
+            retryTotal={3}
             onRetry={() => onAction('auto-test')}
+            // v0.1.02 P3-AUDIT：自动倒计时路径不重置失败计数，让 P0-3 的 3 次上限生效
+            onAutoRetry={() => onAction('auto-test-retry')}
             onCancel={clearInterruptBanner ?? (() => undefined)}
           />
         )}
@@ -383,11 +415,23 @@ function ProgressTab({
   }
   const buttons = resumeGuide.actions && resumeGuide.actions.length > 0 ? resumeGuide.actions : null;
   return (
-    <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-slate-700">
+    // v0.1.02 P3-2：进度引导容器添加 aria-live="polite"，让屏幕阅读器朗读
+    // 自动测试进度 / 中断横幅 / 下一步按钮变化等关键状态变更。
+    <div
+      className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-slate-700"
+      role="status"
+      aria-live="polite"
+      aria-atomic="false"
+    >
       {interruptBanner && (
         <InterruptBanner
           banner={interruptBanner}
+          // v3.2.1 P1-6：把连续失败次数传给横幅
+          retryIndex={autoTestRetryCount}
+          retryTotal={3}
           onRetry={() => onAction('auto-test')}
+          // v0.1.02 P3-AUDIT：自动倒计时路径不重置失败计数，让 P0-3 的 3 次上限生效
+          onAutoRetry={() => onAction('auto-test-retry')}
           onCancel={clearInterruptBanner ?? (() => undefined)}
         />
       )}
@@ -408,6 +452,8 @@ function ProgressTab({
             expectedDurationMs={autoTestExpectedDurationMs}
             latestProgress={autoTestLatestToolLabel ?? autoTestLatestProgress}
             dataTestid="fc-assistant-auto-test-plan"
+            // v3.2.1 P2-12：overtime 状态允许用户手动中断
+            onStop={onStopAutoTest}
           />
         </div>
       )}
@@ -486,89 +532,6 @@ function ElementTab({
       isProcessing={isProcessing}
       onSendModify={(instruction) => onSendModify?.(instruction)}
     />
-  );
-}
-
-/* ========== 测试被中断横幅（amber banner + 5s 自动重试倒计时） ========== */
-
-interface InterruptBannerProps {
-  banner: { reason: string; retryAt: number };
-  onRetry: () => void;
-  onCancel: () => void;
-}
-
-/**
- * 自动测试被中断时的 amber 横幅：
- * - 倒计时到 retryAt 后自动 onRetry() 触发 auto-test 重跑
- * - 用户点「立即重试」→ onRetry()
- * - 用户点「取消」→ onCancel()（清掉 banner）
- *
- * 设计要点：
- * - 用 useEffect + ref 追踪最新 onRetry，避免父组件传入新引用导致 stale closure
- * - 显示前先检查 banner 仍存在（防止 stale timer 在 banner 已清掉的情况下误触发）
- */
-export function InterruptBanner({ banner, onRetry, onCancel }: InterruptBannerProps) {
-  // 注：hooks 必须无条件调用，避免 rules-of-hooks 报错。
-  // banner 已清掉的情况下，副作用 effect 通过 if (!banner) return 提前退出；渲染本身交给父组件条件挂载。
-
-  // 每秒刷新倒计时；卸载或 banner 变化时清掉旧 interval
-  const [, setTick] = useState(0);
-  const onRetryRef = useRef(onRetry);
-  onRetryRef.current = onRetry;
-  const bannerRef = useRef(banner);
-  bannerRef.current = banner;
-
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => t + 1), 1_000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  useEffect(() => {
-    if (!banner) return;
-    const delay = Math.max(0, banner.retryAt - Date.now());
-    const id = window.setTimeout(() => {
-      // 触发前再次校验 banner 仍存在（防止 stale timer）
-      if (bannerRef.current) onRetryRef.current();
-    }, delay);
-    return () => window.clearTimeout(id);
-  }, [banner]);
-
-  if (!banner) return null;
-
-  const remainingMs = Math.max(0, banner.retryAt - Date.now());
-  return (
-    <div
-      data-testid="fc-assistant-interrupt-banner"
-      className="mb-2.5 rounded-xl border border-amber-400 bg-amber-100/80 px-3 py-2 text-xs text-amber-900 animate-fadeIn"
-      role="alert"
-    >
-      <p className="font-medium">⚠️ 测试被中断</p>
-      <p className="mt-0.5 text-amber-800/90">{banner.reason}</p>
-      <div className="mt-1.5 flex items-center gap-1.5">
-        <button
-          type="button"
-          onClick={onRetry}
-          className="rounded bg-amber-500 px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-amber-600"
-          data-testid="fc-assistant-interrupt-retry"
-        >
-          立即重试
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-200"
-          data-testid="fc-assistant-interrupt-cancel"
-        >
-          取消
-        </button>
-        <span
-          className="ml-auto tabular-nums text-[11px] text-amber-700/80"
-          data-testid="fc-assistant-interrupt-countdown"
-        >
-          {formatDuration(remainingMs)} 后自动重试
-        </span>
-      </div>
-    </div>
   );
 }
 
@@ -747,7 +710,7 @@ export function TestReportCard({
 
   return (
     <div
-      className={`rounded-xl border ${palette.card} animate-fadeIn motion-safe:animate-fadeIn motion-reduce:opacity-100 px-4 py-3 text-sm leading-relaxed text-slate-700`}
+      className={`rounded-xl border ${palette.card} motion-safe:animate-fadeIn motion-reduce:opacity-100 px-4 py-3 text-sm leading-relaxed text-slate-700`}
       data-testid="auto-test-report-card"
       data-verdict={v}
     >

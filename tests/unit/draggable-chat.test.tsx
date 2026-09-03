@@ -318,7 +318,7 @@ describe('DraggableChat（AI 助理聊天浮窗）', () => {
   it('最小化态圆形图标：fixed 定位 + z-index 高于展开态浮窗', () => {
     render(<DraggableChat zIndex={40} />);
     fireEvent.click(screen.getByTestId('fc-draggable-chat-minimize'));
-    const orb = screen.getByTestId('fc-draggable-chat-minimized') as HTMLButtonElement;
+    const orb = screen.getByTestId('fc-draggable-chat-minimized') as HTMLDivElement;
     expect(orb.className).toContain('fixed');
     expect(orb.style.zIndex).toBe('41');
   });

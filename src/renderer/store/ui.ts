@@ -1,7 +1,13 @@
 /** UI 状态：当前主工作区、API Key 配置弹窗、API 配置状态。 */
 import { create } from 'zustand';
 
-export type AppView = 'chat' | 'preview' | 'documents';
+/**
+ * 主工作区视图枚举。
+ * v3.2.2 P0-1 重构：'deploy' 从原来的「弹窗」改为「持久化视图」，
+ * 与 chat / preview / documents 平等出现在 header 切换 Tab 上；
+ * 原来 useExportStore.visible/open/close 的模态控制逻辑全部移除。
+ */
+export type AppView = 'chat' | 'preview' | 'documents' | 'deploy';
 
 interface UiState {
   currentView: AppView;
@@ -25,6 +31,14 @@ interface UiState {
    */
   aiChatHidden: boolean;
   setAiChatHidden: (v: boolean) => void;
+  /**
+   * v3.2.1 P1-3：聊天浮窗输入草稿（DraggableChat / MiniChat 共享）。
+   * 之前两个组件各自维护 useState，切换时输入会丢失。
+   * 提到全局 store 后，发送完或最小化后草稿可被统一清空，跨视图切换也保持一致。
+   */
+  chatDraft: string;
+  setChatDraft: (v: string) => void;
+  clearChatDraft: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -39,4 +53,7 @@ export const useUiStore = create<UiState>((set) => ({
   setApiKeyConfigured: (v) => set({ apiKeyConfigured: v }),
   aiChatHidden: false,
   setAiChatHidden: (v) => set({ aiChatHidden: v }),
+  chatDraft: '',
+  setChatDraft: (v) => set({ chatDraft: v }),
+  clearChatDraft: () => set({ chatDraft: '' }),
 }));

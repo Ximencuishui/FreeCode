@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ElementInfo, ElementSelectResult } from '@shared/types/preview';
 import MiniChat from '../Chat/MiniChat';
 
@@ -9,7 +9,9 @@ interface ElementInspectorProps {
   onSendModify: (instruction: string) => void;
 }
 
-/** 色卡：常用颜色 */
+/** 色卡：常用颜色
+ * v0.1.02 P3-4：每条带 hex（权威值，AI 直接拿来渲染）+ 中文名（仅供用户识别）。
+ * 发给 AI 的指令以 hex 为主、中文名为辅，减小"中文 → 颜色"歧义（如"天蓝"vs"蓝"）。*/
 const COLOR_PALETTE: { name: string; hex: string }[] = [
   { name: '红', hex: '#EF4444' },
   { name: '橙', hex: '#F97316' },
@@ -118,11 +120,12 @@ function ColorSwatch({
   c: { name: string; hex: string };
   onPick: (instruction: string) => void;
 }) {
+  // v0.1.02 P3-4：指令里把 hex 放前面、附中文名作 hint，让 AI 直接采用 hex、不依赖颜色名解释。
   return (
     <button
       type="button"
       title={`${c.name}（${c.hex}）`}
-      onClick={() => onPick(`把颜色改成${c.name}色（${c.hex}）`)}
+      onClick={() => onPick(`把颜色改成 ${c.hex}（${c.name}）`)}
       className="flex aspect-square items-center justify-center rounded-md border border-slate-200 text-[9px] text-slate-400 transition-transform hover:scale-110"
       style={{ backgroundColor: c.hex, color: c.hex === '#FFFFFF' ? '#9CA3AF' : '#fff' }}
     >
@@ -131,10 +134,15 @@ function ColorSwatch({
   );
 }
 
-/** 元素检查器：元素信息 + 12 种快捷调整选择卡 + 内嵌修改对话（选中元素自动带上元素上下文） */
-export default function ElementInspector({ element, info }: ElementInspectorProps) {
+/** 元素检查器：元素信息 + 12 种快捷调整选择卡 + 内嵌修改对话（选中元素自动带上元素上下文）
+ * v0.1.02 P1-4：isProcessing 用于驱动 MiniChat 的跑马灯状态（之前是死参数） */
+export default function ElementInspector({ element, info, isProcessing }: ElementInspectorProps) {
   const [instruction, setInstruction] = useState('');
   const [activePicker, setActivePicker] = useState<string | null>(null);
+  // v3.2.1 P1-6：edit-text 真实输入控件——之前只渲染一行提示文字，
+  // 用户看不到能输入的地方。现在用一个本地 <input>，按 Enter 直接走 onSendModify。
+  const [editText, setEditText] = useState('');
+  const editTextRef = useRef<HTMLInputElement>(null);
 
   const styles = [
     { label: '颜色', value: element.styles.color },
@@ -151,6 +159,15 @@ export default function ElementInspector({ element, info }: ElementInspectorProp
   };
 
   const pick = (text: string) => setInstruction(text);
+
+  // v3.2.1 P1-6：edit-text 选中后自动聚焦输入框，让用户立刻打字。
+  useEffect(() => {
+    if (activePicker === 'edit-text') {
+      setEditText('');
+      // 切换面板 → 下一帧聚焦输入框
+      queueMicrotask(() => editTextRef.current?.focus());
+    }
+  }, [activePicker]);
 
   return (
     <div className="space-y-3">
@@ -182,6 +199,8 @@ export default function ElementInspector({ element, info }: ElementInspectorProp
               key={action.action}
               type="button"
               onClick={() => togglePicker(action.action)}
+              aria-pressed={activePicker === action.action}
+              aria-expanded={activePicker === action.action}
               className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
                 activePicker === action.action
                   ? 'border-brand bg-brand text-white'
@@ -211,7 +230,7 @@ export default function ElementInspector({ element, info }: ElementInspectorProp
                   key={c.hex}
                   type="button"
                   title={`${c.name}（${c.hex}）`}
-                  onClick={() => pick(`把背景改成${c.name}色（${c.hex}）`)}
+                  onClick={() => pick(`把背景改成 ${c.hex}（${c.name}）`)}
                   className="flex aspect-square items-center justify-center rounded-md border border-slate-200 text-[9px] text-slate-400 transition-transform hover:scale-110"
                   style={{ backgroundColor: c.hex, color: c.hex === '#FFFFFF' ? '#9CA3AF' : '#fff' }}
                 >
@@ -399,17 +418,64 @@ export default function ElementInspector({ element, info }: ElementInspectorProp
         )}
 
         {activePicker === 'edit-text' && (
-          <PickerCard title="请在下方输入框中输入要改成的文字（输入框已自动填入「把文字改成：」）。" />
+          // v3.2.1 P1-6：原来只渲染一行提示文字，用户看不到能输入的地方。
+          // 现在用一个真 <input>，按 Enter 直接走 onSendModify 把"把文字改成 X"
+          // 指令发给 AI，并把输入框清空以便连续修改。
+          <PickerCard title="输入要改成的新文字（Enter 直接发送）：">
+            <div className="flex gap-2">
+              <input
+                ref={editTextRef}
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && editText.trim()) {
+                    e.preventDefault();
+                    // 透传元素上下文给 AI（ElementInspector 外层 MiniChat 已有 elementContext，
+                    // 这里直接调 onSendModify 走相同通道）。
+                    pick(`把文字改成 "${editText.trim()}"`);
+                    setEditText('');
+                    setActivePicker(null);
+                  }
+                }}
+                disabled={isProcessing}
+                placeholder="例如：点击立即试用"
+                aria-label="输入要改成的新文字"
+                className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs outline-none focus:border-brand disabled:bg-slate-50"
+              />
+              <button
+                type="button"
+                disabled={!editText.trim() || isProcessing}
+                onClick={() => {
+                  if (editText.trim()) {
+                    pick(`把文字改成 "${editText.trim()}"`);
+                    setEditText('');
+                    setActivePicker(null);
+                  }
+                }}
+                className="rounded-md bg-brand px-2.5 py-1 text-xs text-white transition-opacity hover:bg-brand-hover disabled:opacity-40"
+              >
+                发送
+              </button>
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-400">
+              💡 指令会自动写入下方修改对话，可二次编辑后再按 Enter 发送
+            </p>
+          </PickerCard>
         )}
       </div>
 
-      {/* 卡片 2：修改对话（灰底独立卡片；选中元素自动带上元素上下文；快捷选择自动填入指令） */}
+      {/* 卡片 2：修改对话（灰底独立卡片；选中元素自动带上元素上下文；快捷选择自动填入指令）
+          v0.1.02 P1-4：把 element 作为 elementContext 传给 MiniChat，确保每次发送都带元素上下文。
+          （之前 isProcessing/onSendModify 是死参数，DSH 收不到 selectedElement。） */}
       <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm">
         <p className="mb-1.5 text-xs font-medium text-slate-600">💬 修改对话</p>
         <MiniChat
           placeholder="例如：颜色太深了，调亮一点"
           value={instruction}
           onValueChange={setInstruction}
+          elementContext={element}
+          marqueeOnProcessing
+          marqueeText={isProcessing ? '🛠 修改进行中…' : undefined}
         />
       </div>
     </div>

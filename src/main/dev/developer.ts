@@ -1,5 +1,6 @@
 import type { StorageManager } from '../storage/types';
 import type { DSHService } from '../dsh/service';
+import { DSHError } from '../dsh/errors';
 import { buildDevelopmentTask } from '../dsh/prompt';
 import { injectAuthRuntime } from './runtime';
 
@@ -13,6 +14,12 @@ export interface DevelopmentOutcome {
   success: boolean;
   message: string;
   durationMs: number;
+  /**
+   * v3.2.2 P0-5-1：标记「被主动取消」（切项目 / 用户手动中断）。
+   * IPC 层据此不广播 error/info 系统消息——避免给用户弹"任务已被中断"的红色提示。
+   * 与 success=false（真正的失败）语义分离。
+   */
+  cancelled?: boolean;
 }
 
 /** 工具调用原始信息（name + arguments JSON 字符串） → 可读的开发进度文案 */
@@ -51,16 +58,33 @@ export function toolProgressLabel(raw: string): string {
  * 开发执行器（WP-12）：版本计划确认后，调用 DSH 在项目代码目录生成应用。
  * 状态流转：planned → developing → ready（成功）或保持 developing（失败，可重试）。
  * 有版本计划时只开发 V1（MVP）功能子集，避免一次性堆砌全部功能。
+ *
+ * v3.2.2 P0-5：维护 `activeControllers` Map（projectId → AbortController），
+ * 让调用方在用户切项目时可以主动中断旧的 DSH 进程，避免后台任务漂到新项目上。
  */
 export class Developer {
-  /** 正在运行的开发任务（项目 ID 集合），用于开发中断后的恢复判断 */
-  private readonly active = new Set<string>();
+  /** v3.2.2 P0-5：正在运行的开发任务 AbortController 集合（替代旧 Set），
+   *  cancel(projectId) 时调用对应 controller.abort() 让 DSHProcessManager 自然退出。
+   */
+  private readonly activeControllers = new Map<string, AbortController>();
 
   constructor(private readonly deps: DeveloperDeps) {}
 
   /** 该项目是否有开发任务正在运行 */
   isActive(projectId: string): boolean {
-    return this.active.has(projectId);
+    return this.activeControllers.has(projectId);
+  }
+
+  /**
+   * v3.2.2 P0-5：取消指定项目的开发任务。返回是否有任务被中断。
+   * - 同一项目重复 cancel：幂等（第二次返回 false）。
+   * - 切项目时由 IPC 层 project:cancel-development 调用，避免后台 DSH 漂到新项目。
+   */
+  cancel(projectId: string): boolean {
+    const controller = this.activeControllers.get(projectId);
+    if (!controller) return false;
+    controller.abort('project-cancelled');
+    return true;
   }
 
   /** 启动开发任务（后台执行，不阻塞调用方；完成后经 onDone 回调通知） */
@@ -71,11 +95,16 @@ export class Developer {
   ): Promise<void> {
     const storage = this.deps.storage;
     const started = Date.now();
-    if (this.active.has(projectId)) return;
-    this.active.add(projectId);
+    if (this.activeControllers.has(projectId)) return;
+    // v3.2.2 P0-5：每次启动新建独立 controller，存到 Map 供 cancel 查询
+    const controller = new AbortController();
+    this.activeControllers.set(projectId, controller);
 
     const finish = (outcome: DevelopmentOutcome) => {
-      this.active.delete(projectId);
+      // v3.2.2 P0-5：仅当 Map 里仍是当前 controller 才删除，避免 cancel 后被并发 finish 误删新任务
+      if (this.activeControllers.get(projectId) === controller) {
+        this.activeControllers.delete(projectId);
+      }
       onDone(outcome);
     };
 
@@ -96,7 +125,8 @@ export class Developer {
           const text = update.text.trim().replace(/\s+/g, ' ').slice(0, 100);
           if (text) onProgress(`✓ ${text}`);
         }
-      });
+      }, controller.signal);
+      // v3.2.2 P0-5：DSH 抛 TASK_CANCELLED 时不再当成失败结果推送，避免误导用户以为"开发遇到小状况"
       const durationMs = Date.now() - started;
 
       if (result.exitCode === 0) {
@@ -122,6 +152,20 @@ export class Developer {
         });
       }
     } catch (error) {
+      // v3.2.2 P0-5-1：TASK_CANCELLED 是被主动中断的正常路径，不算失败也不该广播 error 给用户。
+      // 与 chat:send IPC handler（chat.ts:112）的静默成功路径保持一致：
+      //   - 标记 cancelled=true 让 IPC 层不调 onDone 广播
+      //   - Map 清理走 finish() 的统一路径，避免漏 delete
+      if (error instanceof DSHError && error.code === 'TASK_CANCELLED') {
+        finish({
+          projectId,
+          success: false,
+          message: '任务已取消',
+          durationMs: Date.now() - started,
+          cancelled: true,
+        });
+        return;
+      }
       // API Key 缺失 / dsh 运行时缺失等：把友好信息透传给用户，避免静默卡在"开发中"
       const message =
         error instanceof Error && error.message ? error.message : '开发失败，请稍后重试';

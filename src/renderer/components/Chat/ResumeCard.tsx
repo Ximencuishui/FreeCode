@@ -15,6 +15,8 @@ export default function ResumeCard({
   guide,
   onAction,
   autoTestRunning = false,
+  // 保留入参以保持接口兼容；测试进度/跑马灯已由 AutoTestPlanCard 承担，本组件不再渲染。
+  // 实际写入 data-* 属性供 e2e 测试断言 + 调试面板读最新进度，避免 noUnusedParameters 误报。
   autoTestLatestProgress = null,
 }: ResumeCardProps) {
   const [pending, setPending] = useState<ResumeAction | null>(null);
@@ -28,31 +30,49 @@ export default function ResumeCard({
 
   const buttons = guide.actions && guide.actions.length > 0 ? guide.actions : null;
 
-  // 自动测试进行中：把整张引导卡切换为"测试中"实时进度态
+  // 自动测试进行中：测试计划详情/跑马灯/计时由 ChatContainer 中的 AutoTestPlanCard 承担
+  // v3.2.1 P2-1：这里加一个"mini 进度"行，显示最近一条工具调用文本，让用户在对话流上方
+  // 就能看到 AI 在做什么，不需要展开下方大卡片。
   if (autoTestRunning) {
+    const latest = autoTestLatestProgress?.trim();
     return (
       <div className="flex justify-start">
-        <div className="max-w-full rounded-xl rounded-bl-sm border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-slate-700">
+        <div
+          className="max-w-full rounded-xl rounded-bl-sm border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-slate-700"
+          data-latest-progress={autoTestLatestProgress ?? ''}
+        >
           <p className="font-medium text-amber-800">📌 欢迎回来，{guide.projectName}</p>
           <p className="mt-1 text-amber-700/90">项目进度：{guide.phaseText}</p>
-          <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-amber-300 bg-white/70 px-3 py-2">
-            <span className="relative flex h-2.5 w-2.5">
+          <p
+            className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] text-amber-700/80"
+            data-testid="auto-test-progress-hint"
+          >
+            <span className="relative flex h-1.5 w-1.5">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
             </span>
-            <span className="text-sm font-medium text-amber-800">🧪 测试进行中</span>
-          </div>
-          {autoTestLatestProgress && (
-            <p
-              className="mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded border border-amber-200 bg-white/60 px-2.5 py-1.5 text-xs text-slate-600"
-              data-testid="auto-test-progress"
-            >
-              {autoTestLatestProgress}
-            </p>
-          )}
-          <p className="mt-1.5 text-[11px] text-amber-700/70">
-            测试报告会作为新消息推送到右侧对话窗口，完成后这里会自动切回。
+            <span>自动测试进行中，详细进度见下方计划卡</span>
           </p>
+          {/* v3.2.1 P2-1：mini 进度条——把最近一条工具调用文本作为"还在做什么"的实时反馈。
+              长文本用 truncate + title 避免撑高卡片；空文本时显示占位说明，避免 UI 抖动。 */}
+          {latest ? (
+            <div
+              className="mt-1.5 flex items-center gap-1.5 text-[11px] text-amber-700/70"
+              data-testid="auto-test-mini-progress"
+              title={latest}
+            >
+              <span aria-hidden="true">▸</span>
+              <span className="truncate">{latest}</span>
+            </div>
+          ) : (
+            <div
+              className="mt-1.5 flex items-center gap-1.5 text-[11px] text-amber-700/60"
+              data-testid="auto-test-mini-progress-empty"
+            >
+              <span aria-hidden="true">▸</span>
+              <span className="italic">等待工具调用…</span>
+            </div>
+          )}
         </div>
       </div>
     );

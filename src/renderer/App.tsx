@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import ProjectSwitcher from './components/ProjectSwitcher';
 import DraggableChat from './components/Chat/DraggableChat';
 import AssistantPanel from './components/Preview/AssistantPanel';
@@ -9,7 +9,7 @@ import DocumentViewer from './components/Documents/DocumentViewer';
 import PreviewContainer from './components/Preview/PreviewContainer';
 import RequirementCard from './components/Chat/RequirementCard';
 import VersionPlanCard from './components/Chat/VersionPlanCard';
-import DeployPanel from './components/Export/DeployPanel';
+import DeployView from './components/Export/DeployView';
 import ApiKeyModal from './components/ApiKeyModal';
 import Logo from './components/Logo';
 import AiAssistantIcon from './components/AiAssistantIcon';
@@ -20,13 +20,22 @@ import { useUiStore } from './store/ui';
 import { useExportStore, handleExportComplete } from './store/export';
 import { useChatEvents } from './hooks/useChatEvents';
 import type { AppInfo } from '@shared/types/app';
-import type { AppSettings } from '@shared/types/settings';
-import type { VersionPlan, RequirementSummary } from '@shared/types/project';
+import type { AppSettings, SettingsGetResult } from '@shared/types/settings';
+import type {
+  VersionPlan,
+  RequirementSummary,
+  TestIssue,
+  ProjectGetResult,
+  ProjectResumeDevelopmentResult,
+} from '@shared/types/project';
+import type { ExportCompleteEvent } from '@shared/types/export';
+import type { PreviewOpenExternalResult } from '@shared/types/preview';
 
 /** 主界面：三栏式布局（前端设计说明书 2.1） */
-// 视图切换 Tab：原左侧菜单的【对话】【预览】【部署】挪到顶部 header 中间位置。
-// - chat / preview 走 setView 切视图；
-// - deploy 不属于视图，单独触发部署弹窗（智能部署向导）。
+// 视图切换 Tab（v3.2.2 P0-1 重构）：四个 Tab 全部走 setView 切换持久化视图，
+// 包括「🚀 部署」——从原来的「点击打开弹窗」改为「切换到 DeployView 视图」。
+// type as const 保证 key 的字面量类型与 AppView 严格对齐；
+// 'deploy' 已在 ui.ts 的 AppView 中声明。
 const VIEW_TABS = [
   { key: 'chat', icon: '💬', label: '对话' },
   { key: 'preview', icon: '🔍', label: '预览' },
@@ -81,6 +90,8 @@ export default function App() {
   /** 窗口宽度（监听 resize，低于阈值时切抽屉模式） */
   const [windowWidth, setWindowWidth] = useState<number>(() => window.innerWidth);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  // v3.2.2 P0-5：记住上一个 currentProjectId，effect 里用它调 cancelActiveTasks
+  const prevProjectIdRef = useRef<string | null>(null);
 
   /** 写入宽度：clamp 后同步到 localStorage */
   const setRightWidth = useCallback((w: number) => {
@@ -117,9 +128,21 @@ export default function App() {
   const isNarrow = windowWidth < NARROW_THRESHOLD;
 
   // 窗口变宽自动关闭抽屉（避免抽屉开着覆盖已经能放下的右侧面板）
+  // v0.1.02 P1-1：窗口变窄自动收起右侧面板 + 关闭抽屉，避免出现"宽屏已展开但窄屏又是折叠态"的视觉割裂；
+  // 窗口变宽时反向同步：宽屏下若抽屉打开，强制关掉（由抽屉态切换到嵌入态）。
+  // 注意：依赖数组只放 [isNarrow]，不要把 rightCollapsed / drawerOpen 放进来——
+  // 否则在用户主动 setDrawerOpen(true) 后，effect 会立刻把它打回 false，导致窄屏下抽屉永远打不开。
   useEffect(() => {
-    if (!isNarrow && drawerOpen) setDrawerOpen(false);
-  }, [isNarrow, drawerOpen]);
+    if (isNarrow) {
+      // 进入窄屏：抽屉态接管，强制 rightCollapsed=true（避免抽屉半透明时还看到嵌入面板）。
+      // 同时若抽屉已开（理论上窄屏默认关闭，这里只兜底），也强制关闭防止半透明叠加。
+      setRightCollapsedState(true);
+      setDrawerOpen(false);
+    } else if (drawerOpen) {
+      // 退出窄屏：抽屉态切回嵌入态。
+      setDrawerOpen(false);
+    }
+  }, [isNarrow]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** 拖动分隔条：左右拖动调整预览区/右侧面板宽度。折叠态下拖动会自动展开。 */
   const startResize = (e: ReactMouseEvent<HTMLDivElement>) => {
@@ -150,8 +173,17 @@ export default function App() {
   const projects = useProjectStore((s) => s.projects);
   const loadProjects = useProjectStore((s) => s.loadProjects);
   /** 切换项目时清空旧项目的文档选择，目录重新扫描后自动选中首项 */
+  // v3.2.2 P0-5：同一 effect 里追加「取消旧项目后台任务」——
+  //   用 useRef 记录 prev projectId；只有从 A → B 才需要取消 A，避免首屏 / 刷新时无意义的 IPC。
+  //   三个 cancel（dev / export / package）由 store 内部并发 + allSettled，
+  //   单个失败不影响其他，也不阻塞切项目流程（主进程各 cancel 通道返回快，~ms 级）。
   useEffect(() => {
     setSelectedDocumentPath(null);
+    const prev = prevProjectIdRef.current;
+    if (prev && prev !== currentProjectId) {
+      void useChatStore.getState().cancelActiveTasks(prev);
+    }
+    prevProjectIdRef.current = currentProjectId;
   }, [currentProjectId]);
   const currentView = useUiStore((s) => s.currentView);
   const setView = useUiStore((s) => s.setView);
@@ -183,6 +215,8 @@ export default function App() {
   const devProgress = useChatStore((s) => s.devProgress);
   const lastTestReport = useChatStore((s) => s.lastTestReport);
   const interruptBanner = useChatStore((s) => s.interruptBanner);
+  // v3.2.1 P1-6：自动测试连续失败次数，用于 AssistantPanel InterruptBanner 展示「第 N/3 次重试」
+  const autoTestRetryCount = useChatStore((s) => s.autoTestRetryCount);
   const lastTestFixAt = useChatStore((s) => s.lastTestFixAt);
   const clearInterruptBanner = useCallback(
     () => useChatStore.getState().setInterruptBanner(null),
@@ -200,6 +234,11 @@ export default function App() {
     },
     [sendMessage],
   );
+  // v3.2.1 P2-12：测试 overtime 时「立即中断」按钮回调。用 useCallback 稳定引用，
+  // AssistantPanel 暂未 memo，但保留稳定引用对未来加 React.memo 不留隐患。
+  const handleStopAutoTest = useCallback(() => {
+    void useChatStore.getState().stopTask();
+  }, []);
   /** 关闭「建议再测一次」提示卡（用户点了「稍后」），等价于清空 lastTestFixAt。 */
   const clearSuggestRetest = useCallback(
     () => useChatStore.getState().setLastTestFixAt(null),
@@ -209,11 +248,14 @@ export default function App() {
   const setApiKeyConfigured = useUiStore((s) => s.setApiKeyConfigured);
   const openSettings = useUiStore((s) => s.openSettings);
   const openInvite = useUiStore((s) => s.openInvite);
-  const openDeploy = useExportStore((s) => s.open); // v3.2：原 openExport 已统一为「打开部署向导」
+  // v3.2.2 P0-1 重构：openDeploy / deployVisible 已删除（原 useExportStore 模态控制）。
+  // 「🚀 部署」Tab 现在是持久化视图，与 chat / preview / documents 平等；
+  // 跳转通过 setView('deploy') 完成，不依赖 store 副作用。
   useChatEvents();
 
   // 离开预览元素检查器后恢复 AI 浮窗，避免切换到文档工作区时被旧状态隐藏
-  useEffect(() => {
+  // v0.1.02 P0-1：useLayoutEffect 在浏览器绘制前同步执行，避免切视图瞬间浮窗延迟出现。
+  useLayoutEffect(() => {
     if (currentView !== 'preview') {
       useUiStore.getState().setAiChatHidden(false);
     }
@@ -221,7 +263,9 @@ export default function App() {
 
   // 订阅导出完成事件
   useEffect(() => {
-    const unsub = window.electron.export.onComplete((data) => handleExportComplete(data));
+    const unsub = window.electron.export.onComplete((data: ExportCompleteEvent) =>
+      handleExportComplete(data),
+    );
     return unsub;
   }, []);
 
@@ -239,7 +283,7 @@ export default function App() {
       .catch(() => setAppInfo(null));
     window.electron.settings
       .get()
-      .then(({ settings: s }) => {
+      .then(({ settings: s }: SettingsGetResult) => {
         setSettings(s);
         setApiKeyConfigured(s.apiKeyConfigured);
         // 首次启动（未配置 API Key）：若用户尚未手动打开过设置弹窗，则自动弹出欢迎引导
@@ -254,7 +298,7 @@ export default function App() {
   const refreshSettings = useCallback(() => {
     window.electron.settings
       .get()
-      .then(({ settings: s }) => {
+      .then(({ settings: s }: SettingsGetResult) => {
         setSettings(s);
         setApiKeyConfigured(s.apiKeyConfigured);
       })
@@ -269,7 +313,7 @@ export default function App() {
     void useChatStore.getState().loadHistory(currentProjectId);
     window.electron.project
       .get({ projectId: currentProjectId })
-      .then((result) => {
+      .then((result: ProjectGetResult) => {
         if (result.success && result.project) {
           const r = result.project.requirements;
           setRequirements({
@@ -304,7 +348,7 @@ export default function App() {
     const timer = setInterval(() => {
       window.electron.project
         .get({ projectId: currentProjectId })
-        .then((result) => {
+        .then((result: ProjectGetResult) => {
           if (result.success && result.project?.versionPlan) {
             setVersionPlan(result.project.versionPlan);
             clearInterval(timer);
@@ -321,7 +365,7 @@ export default function App() {
     const timer = setInterval(() => {
       window.electron.project
         .get({ projectId: currentProjectId })
-        .then((result) => {
+        .then((result: ProjectGetResult) => {
           if (result.success && result.project && result.project.status !== 'developing') {
             setProjectStatus(result.project.status);
             setVersionPlan(result.project.versionPlan ?? null);
@@ -354,7 +398,7 @@ export default function App() {
         setProjectStatus('draft');
       }
     },
-    [currentProjectId],
+    [currentProjectId, setProjectStatus],
   );
 
   const handleConfirmPlan = async (plan: VersionPlan) => {
@@ -376,27 +420,70 @@ export default function App() {
     }
   };
 
-  /** 保存需求卡片的编辑结果（持久化 + 刷新渲染层状态） */
+  /**
+   * 保存需求卡片的编辑结果（持久化 + 必要时回滚副作用）。
+   * P0-3（需求二次编辑副作用回滚）：
+   * 当项目状态已经在 confirmed 之后（planned/developing/ready/exported），
+   * 且本次编辑改动的是「核心字段」（目标 / 目标用户 / 核心功能 / 关键流程），
+   * 则把项目状态回滚到 draft、清空版本计划、并推一条系统消息，
+   * 强制用户重新走「确认需求 → 重新规划」的链路，避免旧版本计划 / 旧测试报告与新需求错位。
+   * 非核心字段（视觉风格 / 页面 / 设备 / 登录方式 等）的修改不会触发回滚，
+   * 保留项目状态，只在确认弹窗里告知用户"附属字段不影响版本计划"。
+   */
   const handleUpdateRequirements = useCallback(
     async (patch: Partial<RequirementSummary>): Promise<boolean> => {
       if (!currentProjectId) return false;
       const current = useChatStore.getState().requirements;
       if (!current) return false;
+      // 编辑前的项目状态——下面要根据这个判断是否需要回滚。
+      const statusBefore = useChatStore.getState().projectStatus;
+      const isPostConfirmation =
+        statusBefore === 'planned' ||
+        statusBefore === 'developing' ||
+        statusBefore === 'ready' ||
+        statusBefore === 'exported';
+      // 核心字段变化检测：只关心用户真正改动了哪些"决定项目是什么"的字段。
+      // 数组用 JSON.stringify 比较是可行的——字段量很小（< 20 项），开销忽略不计，
+      // 而且 editor 总是把当前值完整 push 过来（不传 undefined），不会因 patch 缺字段漏判。
+      const coreChanged =
+        (patch.goal ?? '').trim() !== (current.goal ?? '').trim() ||
+        (patch.targetUsers ?? '').trim() !== (current.targetUsers ?? '').trim() ||
+        JSON.stringify(patch.coreFeatures ?? []) !==
+          JSON.stringify(current.coreFeatures ?? []) ||
+        JSON.stringify(patch.keyFlows ?? []) !==
+          JSON.stringify(current.keyFlows ?? []);
       try {
         const result = await window.electron.project.updateRequirements({
           projectId: currentProjectId,
           requirements: patch,
         });
-        if (result.success) {
-          setRequirements({ ...current, ...patch, confirmed: current.confirmed });
-          return true;
+        if (!result.success) {
+          return false;
         }
+        // 保留原 confirmed 标志——confirmed 表示用户曾点过"确认需求"，不是字段校验。
+        setRequirements({ ...current, ...patch, confirmed: current.confirmed });
+        // 回滚副作用：仅在「已确认后 + 核心字段改动」时触发；其他情况直接成功返回。
+        if (isPostConfirmation && coreChanged) {
+          setProjectStatus('draft');
+          setVersionPlan(null);
+          // 用 sessionId 让系统消息独立于主对话流，便于后续 cleanMessagesBySession 清理。
+          useChatStore.getState().pushMessage({
+            role: 'system',
+            content:
+              '🔄 检测到核心需求变更（目标 / 目标用户 / 核心功能 / 关键流程），已自动回滚项目状态到「草稿」。\n\n版本计划已失效，请重新确认需求以生成新的版本计划。',
+            metadata: {
+              channel: 'requirement-rollback',
+              sessionId: `requirement-rollback-${currentProjectId}`,
+            },
+          });
+        }
+        return true;
       } catch {
         /* 失败返回 false，由卡片提示 */
+        return false;
       }
-      return false;
     },
-    [currentProjectId, setRequirements],
+    [currentProjectId, setRequirements, setProjectStatus, setVersionPlan],
   );
 
   /** 重新进入项目的进度引导：根据当前项目状态 + 视图实时推导（AI 助理汇报进度 + 继续下一步） */
@@ -433,7 +520,7 @@ export default function App() {
         // 测试完成后：phaseText / action 按 verdict 切换，引导进入完成态后的下一动作
         if (lastTestReport) {
           const issueTotal = lastTestReport.issues.length;
-          const highTotal = lastTestReport.issues.filter((i) => i.severity === 'high').length;
+          const highTotal = lastTestReport.issues.filter((i: TestIssue) => i.severity === 'high').length;
           let phaseText = '';
           if (lastTestReport.verdict === 'pass') {
             phaseText = '测试通过，可以放心导出部署包';
@@ -565,7 +652,7 @@ export default function App() {
       const flows = requirements?.keyFlows ?? [];
       const steps =
         flows.length > 0
-          ? flows.map((f, i) => `${i + 1}. ${f}`).join('\n')
+          ? flows.map((f: string, i: number) => `${i + 1}. ${f}`).join('\n')
           : '1. 打开首页，检查页面是否正常显示\n2. 逐个点击核心功能，确认可交互\n3. 检查页面之间的跳转与数据保存';
       return `🌐 已为你打开浏览器（${url}），请按以下步骤测试：
 
@@ -591,7 +678,7 @@ ${steps}
       // 用系统浏览器打开 + AI 发言引导测试步骤
       void window.electron.preview
         .openExternal()
-        .then((result) => {
+        .then((result: PreviewOpenExternalResult) => {
           if (result.success) {
             useChatStore
               .getState()
@@ -607,32 +694,65 @@ ${steps}
       // 一键自动测试：编写测试用例、运行检查、审计代码（报告作为消息推送）。
       // 点击后立即给用户可见反馈：设置 autoTestRunning=true → AssistantPanel 自动展开 📌 进度 Tab；
       // 起始消息通过 appendDevProgress 推送到开发日志（💬 Tab）。
+      // v0.1.02 P0-3：每次主动触发 auto-test（含 InterruptBanner 自动/手动重试入口）都清零失败计数，
+      // 给用户新一轮的 3 次自动重试机会，避免点一次重试就被永久卡在"已达上限"。
       if (currentProjectId) {
-        useChatStore.getState().setAutoTestRunning(true);
-        useChatStore.getState().setAutoTestLatestProgress('🧪 已收到指令，正在准备测试环境…');
-        useChatStore
-        .getState()
-        .appendDevProgress('🧪 已收到"一键测试"指令，开始编写测试用例并审计代码…');
+        // v0.1.02 P3-7：用户主动重测时清空所有上次测试的残留状态：
+        // - interruptBanner：旧的中断原因 banner 不应残留（会被 InterruptBanner 渲染为"上一轮失败"）
+        // - lastTestFixAt：上一次"建议再测一次"的时间戳，避免 SuggestRetestCard 误判 30s 窗口
+        // - autoTestLatestProgress：保证新一轮的"已收到指令…"立刻盖掉旧进度
+        // - autoTestToolCount / autoTestPlan：清掉 step 进度推断的旧值
+        const store = useChatStore.getState();
+        store.resetAutoTestRetry();
+        store.setInterruptBanner(null);
+        store.setLastTestFixAt(null);
+        store.resetAutoTestPlan();
+        store.setAutoTestRunning(true);
+        store.setAutoTestLatestProgress('🧪 已收到指令，正在准备测试环境…');
+        store.appendDevProgress('🧪 已收到"一键测试"指令，开始编写测试用例并审计代码…');
         void window.electron.project
           .autoTest({ projectId: currentProjectId })
-          .catch((err) => {
+          .catch((err: unknown) => {
             // 主进程异常时也要复位"测试中"状态，避免右侧一直转圈
             useChatStore.getState().setAutoTestRunning(false);
             useChatStore.getState().setAutoTestLatestProgress(null);
             console.warn('[FreeCoder] 一键测试失败：', err);
           });
       }
+    } else if (action === 'auto-test-retry') {
+      // v0.1.02 P3-AUDIT：InterruptBanner 倒计时到点触发的内部重试。
+      // 与用户主动 'auto-test' 的关键差异：不调用 resetAutoTestRetry()，
+      // 否则 counter 永远停在 1，P0-3 的 "3 次失败上限 / 指数退避" 完全失效，
+      // 失败 → 5s 重试 → 再失败 → 5s 重试 → … 死循环跑 DSH。
+      // 这里其它清理（中断 banner / lastTestFixAt / progress）跟用户主动重测一致，
+      // 反正 banner 自己已经被另一个 useEffect 渲染中保留到重试触发。
+      if (currentProjectId) {
+        const store = useChatStore.getState();
+        store.setInterruptBanner(null);
+        store.setLastTestFixAt(null);
+        store.resetAutoTestPlan();
+        store.setAutoTestRunning(true);
+        store.setAutoTestLatestProgress('🧪 自动重试中（已达 ' + store.autoTestRetryCount + ' 次连续失败）…');
+        store.appendDevProgress('🔁 自动重试（第 ' + (store.autoTestRetryCount + 1) + ' 次）…');
+        void window.electron.project
+          .autoTest({ projectId: currentProjectId })
+          .catch((err: unknown) => {
+            useChatStore.getState().setAutoTestRunning(false);
+            useChatStore.getState().setAutoTestLatestProgress(null);
+            console.warn('[FreeCoder] 自动重试失败：', err);
+          });
+      }
     } else if (action === 'refresh-status' && currentProjectId) {
       // 继续开发：先触发恢复，成功后引导卡切换为"开发中"；再刷新最新状态
       void window.electron.project
         .resumeDevelopment({ projectId: currentProjectId })
-        .then((result) => {
+        .then((result: ProjectResumeDevelopmentResult) => {
           if (result.success) setDevTaskRunning(true);
         })
         .catch(() => undefined);
       window.electron.project
         .get({ projectId: currentProjectId })
-        .then((result) => {
+        .then((result: ProjectGetResult) => {
           if (result.success && result.project) {
             setProjectStatus(result.project.status);
             setVersionPlan(result.project.versionPlan ?? null);
@@ -657,11 +777,14 @@ ${steps}
     if (isNarrow) {
       return (
         <>
-          {/* 浮动按钮：fixed 在主区域右上，点击展开抽屉 */}
+          {/* 浮动按钮：fixed 在主区域右上，点击展开抽屉
+              v0.1.02 P1-7：原来在 top-16（64px）会与窄屏下的顶部 Tab 内容重叠。
+              下移到 top-14（56px）+ 收紧 padding，避免遮挡 Tab 文本。 */}
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
-            className="fixed right-4 top-16 z-30 flex items-center gap-1 rounded-full bg-brand px-3 py-1.5 text-xs font-medium text-white shadow-lg transition-colors hover:bg-brand-hover"
+            aria-label={`展开${panelLabel}`}
+            className="fixed right-3 top-14 z-30 flex items-center gap-1 rounded-full bg-brand px-2.5 py-1 text-[11px] font-medium text-white shadow-lg transition-colors hover:bg-brand-hover"
           >
             <span>{drawerLabel}</span>
           </button>
@@ -743,49 +866,77 @@ ${steps}
           className="flex shrink-0 items-center gap-1 rounded-full bg-slate-100/70 p-1"
           aria-label="主导航"
         >
-          {VIEW_TABS.map((tab) => {
-            const isDeploy = tab.key === 'deploy';
-            const isActive = !isDeploy && currentView === tab.key;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => (isDeploy ? openDeploy() : setView(tab.key))}
-                title={tab.label}
-                aria-label={tab.label}
-                aria-current={isActive ? 'page' : undefined}
-                className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs transition-colors ${
-                  isActive
-                    ? 'bg-white font-medium text-brand shadow-sm'
-                    : 'text-slate-500 hover:bg-white/60'
-                }`}
-              >
-                <span className="text-sm leading-none">{tab.icon}</span>
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
+          {VIEW_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setView(tab.key)}
+              title={tab.label}
+              aria-label={tab.label}
+              aria-current={currentView === tab.key ? 'page' : undefined}
+              className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs transition-colors ${
+                currentView === tab.key
+                  ? 'bg-white font-medium text-brand shadow-sm'
+                  : 'text-slate-500 hover:bg-white/60'
+              }`}
+            >
+              <span className="text-sm leading-none" aria-hidden="true">
+                {tab.icon}
+              </span>
+              <span>{tab.label}</span>
+            </button>
+          ))}
         </nav>
-        {/* 右侧：API 状态徽章 + 设置 */}
+        {/* 右侧：全局 AI 思考指示（修复 P1-1）+ API 状态徽章 + 设置 */}
         <div className="flex flex-1 items-center justify-end gap-2">
+          {/* 修复 P1-1：全局 AI 思考指示，统一 ChatContainer / AssistantPanel / VersionPlanCard
+              三处独立等待 UI 的视觉。isProcessing 时显示 amber 脉冲徽章 + 一个轻量的跑马灯词，
+              用户在 chat / preview / documents 任何视图都能看到「还在跑」。非处理中时只保留
+              一个极小的「●」占位，避免画布抖动。 */}
+          {isProcessing ? (
+            <span
+              className="flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700"
+              data-testid="app-ai-thinking-chip"
+              aria-live="polite"
+              aria-atomic="true"
+              title={autoTestRunning ? '测试进行中…' : 'AI 正在处理…'}
+            >
+              <span
+                className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500"
+                aria-hidden="true"
+              />
+              <span>{autoTestRunning ? '测试进行中…' : 'AI 思考中…'}</span>
+            </span>
+          ) : (
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400/60"
+              aria-hidden="true"
+              title="AI 空闲"
+            />
+          )}
           <button
             type="button"
             onClick={() => {
-              if (apiKeyConfigured !== true) openSettings();
+              // v0.1.02 P3-6：null 表示"还在从主进程读"，不是"没配置"。
+              // 之前只在 apiKeyConfigured !== true 时打开弹窗（这个已经满足），但按钮
+              // 视觉态是 cursor-default + 灰底，null 期间点击像"按钮坏了"。
+              // 现在 null 也允许点击（打开配置面板占位），且视觉上 cursor-pointer + hover。
+              openSettings();
             }}
             title={
               apiKeyConfigured === true
-                ? '大模型 API 已配置'
+                ? '大模型 API 已配置（点击查看）'
                 : apiKeyConfigured === false
                   ? '尚未配置大模型 API，点击配置'
-                  : '加载中…'
+                  : '加载中…（点击打开配置）'
             }
+            // v0.1.02 P3-6：null 态视觉态改为 cursor-pointer + hover 反馈，让用户感知可点击。
             className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs transition-colors ${
               apiKeyConfigured === true
-                ? 'cursor-default bg-emerald-50 text-emerald-600'
+                ? 'cursor-default bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
                 : apiKeyConfigured === false
                   ? 'cursor-pointer bg-amber-50 text-amber-600 hover:bg-amber-100'
-                  : 'cursor-default bg-slate-50 text-slate-400'
+                  : 'cursor-pointer bg-slate-50 text-slate-400 hover:bg-slate-100'
             }`}
           >
             <span
@@ -825,8 +976,16 @@ ${steps}
       )}
 
       {/* 主体：工作区 + 右侧面板（chat 视图才有右侧面板，preview 视图交给 AI 助理浮窗） */}
+      {/* v3.2.1 P3-9：工作区加 key={currentProjectId} 触发重渲染 + animate-fadeIn，
+          项目切换时给一个柔和的淡入动画（200ms），让用户感知到「内容确实换了一份」，
+          避免瞬间硬切显得突兀。keyframes 来自 tailwind.config.js。
+          注意：key 只挂在工作区 <section> 上，不影响右侧面板 / 状态栏 / 全局浮窗，
+          避免聊天滚动位置、需求编辑草稿等非受控状态被强制清零。 */}
       <main className="flex flex-1 overflow-hidden">
-        <section className="flex-1 overflow-hidden">
+        <section
+          key={currentProjectId ?? 'no-project'}
+          className="flex-1 animate-fadeIn overflow-hidden"
+        >
           {!currentProjectId ? (
             <ProjectWelcome />
           ) : currentView === 'chat' ? (
@@ -836,6 +995,9 @@ ${steps}
               onResumeAction={handleResumeAction}
               autoTestRunning={autoTestRunning}
               autoTestLatestProgress={autoTestLatestProgress}
+              // 修复 P1-2：项目已交付（exported）后 MilestoneCard 的「查看部署指南」
+              // 跳转到持久化的 DeployView（v3.2.2 P0-1：原为 openDeploy 弹窗）。
+              onOpenDeployFromMilestone={() => setView('deploy')}
             />
           ) : currentView === 'preview' ? (
             <PreviewContainer />
@@ -845,6 +1007,10 @@ ${steps}
               projectId={currentProjectId}
               selectedPath={selectedDocumentPath}
             />
+          ) : currentView === 'deploy' ? (
+            // v3.2.2 P0-1 重构：部署从弹窗升级为持久化视图。
+            // 仍然受「先有项目」条件保护——未选项目时不渲染，由 ProjectWelcome 兜底。
+            <DeployView />
           ) : null}
         </section>
         {/* 右侧面板：chat 显示需求/版本计划，documents 显示目录树，preview 显示 AI 助理。
@@ -914,13 +1080,18 @@ ${steps}
               devProgress={devProgress}
               lastTestReport={lastTestReport}
               onViewReport={() => setView('chat')}
-              onOpenDeploy={() => openDeploy()}
+              // v3.2.2 P0-1 重构：AssistantPanel 的「🚀 部署」按钮跳转到持久化视图。
+              onOpenDeploy={() => setView('deploy')}
               onSendModify={(instruction) => void sendMessage(instruction)}
               onSendModifyFix={onSendModifyFix}
               lastTestFixAt={lastTestFixAt}
               clearSuggestRetest={clearSuggestRetest}
               interruptBanner={interruptBanner}
               clearInterruptBanner={clearInterruptBanner}
+              // v3.2.1 P1-6：把连续失败次数透传，AssistantPanel 顶部 InterruptBanner 展示「第 N/3 次重试」徽章
+              autoTestRetryCount={autoTestRetryCount}
+              // v3.2.1 P2-12：overtime 时允许用户在 AutoTestPlanCard 内手动中断，避免仅依赖 InterruptBanner
+              onStopAutoTest={handleStopAutoTest}
             />,
             'AI 助理面板',
             <span className="flex items-center gap-1.5">
@@ -935,24 +1106,57 @@ ${steps}
       </main>
 
       {/* 状态栏 */}
-      <footer className="flex h-8 shrink-0 items-center justify-between border-t border-slate-200 px-4 text-xs text-slate-400">
+      <footer
+        className="flex h-8 shrink-0 items-center justify-between border-t border-slate-200 px-4 text-xs text-slate-400"
+        role="contentinfo"
+        aria-label="应用状态"
+      >
         <span>
           {apiKeyConfigured === true
             ? '● 大模型 API 已配置（本地加密存储）'
             : apiKeyConfigured === false
               ? '● 尚未配置大模型 API，点击右上角配置'
               : '● 正在加载设置…'}
+          {/* v0.1.02 P2-5：DSH 不可用时把主进程给的真实 hint 渲染出来。
+              之前只判断 appInfo.dshAvailable === false，但 dshHint 是字符串，
+              如果后端没传过来就 fallback 到默认文案，避免空标签。 */}
           {appInfo?.dshAvailable === false && (
-            <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-amber-600">
-              ⚠ {appInfo.dshHint ?? '未检测到 DSH 运行时'}
+            <span
+              className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-amber-600"
+              title={appInfo.dshHint ?? undefined}
+            >
+              ⚠ {appInfo.dshHint?.trim() || '未检测到 DSH 运行时'}
             </span>
           )}
         </span>
-        <span>项目保存在本地 · 数据不上传</span>
+        {/* v0.1.02 P2-5：原来"项目保存在本地 · 数据不上传"易让用户困惑「本地」指什么。
+            实际项目文件存在 ~/.freecoder/Project/<id>/ 下（用户机器上的固定目录），
+            大模型 API Key 加密保存在本地，但需求/对话数据不上传。
+            这里把"本地"指代说清楚，避免歧义。 */}
+        <span className="flex items-center gap-2">
+          项目文件保存在本机{' '}
+          <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-500">
+            ~/.freecoder/Project
+          </code>
+          ，需求与对话数据不上传
+          {/* v3.2.1 P1-12：一键打开数据目录——之前用户想知道自己的项目放在哪只能去搜
+              ~/.freecoder/，现在直接点按钮调 revealInFolder 把目录打开。 */}
+          <button
+            type="button"
+            onClick={() => void window.electron.app.revealInFolder('~/.freecoder')}
+            className="ml-1 rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-500 transition-colors hover:border-brand hover:text-brand"
+            title="在文件管理器中打开数据目录 ~/.freecoder"
+            aria-label="打开数据目录"
+            data-testid="footer-open-data-dir"
+          >
+            📂 打开目录
+          </button>
+        </span>
       </footer>
 
-      {/* 智能部署面板（v3.2：替代原 ExportPanel，含一键启动 / 智能打包 / 部署指引 / 高级导出四大支柱） */}
-      <DeployPanel />
+      {/* 智能部署视图（v3.2.2 P0-1 重构）：
+          原「DeployPanel 弹窗」已改造为持久化视图 DeployView，在主工作区 section 里按 currentView === 'deploy' 渲染。
+          由此移除此处原来的全局 <DeployPanel /> 模态挂载点 —— 不再有「弹窗去哪了」的认知负担。 */}
 
       {/* 首次启动 / 设置弹窗（欢迎态由 ui store 的 inviteMode 原子驱动） */}
       <ApiKeyModal

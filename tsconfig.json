@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
@@ -15,9 +15,29 @@
     "skipLibCheck": true,
     "noEmit": true,
     "useDefineForClassFields": true,
+    "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
       "@shared/*": ["src/shared/*"]
     }
-  }
+  },
+  "include": [
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/shared/**/*",
+    "scripts/**/*",
+    "vite.config.ts",
+    "playwright.config.ts"
+  ],
+  "exclude": [
+    "src/renderer/**/*",
+    "tests/**/*",
+    "e2e/**/*",
+    "node_modules",
+    "dist",
+    "release",
+    "resources",
+    ".pnpm-store",
+    ".npm-cache"
+  ]
 }

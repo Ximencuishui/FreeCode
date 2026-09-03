@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useProjectStore } from '../store/project';
 import { useUiStore } from '../store/ui';
 import SaveLocationDialog from './SaveLocationDialog';
-import { PROJECT_STATUS_LABEL } from './ProjectSwitcher';
+import { ProjectStatusBadge } from './ProjectSwitcher';
 
 /** 项目欢迎卡片：无项目时展示最近项目快捷入口（可删除）+ 新建表单（前端设计说明书 4.4 空状态） */
 export default function ProjectWelcome() {
@@ -23,9 +23,33 @@ export default function ProjectWelcome() {
     .sort((a, b) => (b.lastOpenedAt ?? b.updatedAt).localeCompare(a.lastOpenedAt ?? a.updatedAt))
     .slice(0, 5);
 
-  // 同名项目数（用于新建时提示，避免误产生重复项目）
+  // 同名项目数（用于新建时提示，避免误产生重复项目）。
+  // v3.2.1 P2-6：之前按 displayName 精确匹配（projects.filter(p.name === trimmedName).length），
+  // 但主进程 storage/index.ts::resolveProjectDir 实际按 "sanitize 后的 base + 后缀" 比较占用——
+  // 极端情况：用户输入含 `/` 或特殊字符，原名经 sanitize 后变化，会出现
+  //   - 用户输入「我的/项目」
+  //   - 已有项目显示名「我的/项目」+ 「我的项目」（旧数据由 sanitize 变化生成）
+  //   - 前端 sameNameCount=1（只匹配原名），后端实际从 suffix=2 开始算 → 落到「我的项目-2」
+  // 提示与实际不符。
+  // 修复：用 startsWith(`${trimmedName}`) 涵盖「原名 + -N 后缀」两种占用，并按主进程 sanitize 规则
+  // 推导 sanitizeBase 后再比较，更接近后端实际占用判定。
   const trimmedName = name.trim();
-  const sameNameCount = trimmedName ? projects.filter((p) => p.name === trimmedName).length : 0;
+  const sanitizeBase = trimmedName
+    .replace(/[\\/:*?"<>|]/g, '')
+    .replace(/[.\s]+$/g, '')
+    .trim() || '未命名项目';
+  const sameNameCount = trimmedName
+    ? projects.filter((p) => {
+        const pBase = (p.name ?? '')
+          .replace(/[\\/:*?"<>|]/g, '')
+          .replace(/[.\s]+$/g, '')
+          .trim() || '未命名项目';
+        return pBase === sanitizeBase || pBase === `${sanitizeBase}-2`;
+      }).length
+    : 0;
+  // v3.2.1 P2-6：预测下一个自动名——按后端 dirToDisplayName 规则（base 或 `${base}-${suffix}`，suffix≥2）。
+  // 不依赖 sameNameCount 精确推算（极端情况可能与实际差 1），仅作"用户大概会看到"的提示。
+  const predictedName = sameNameCount === 0 ? trimmedName : `${trimmedName}-${sameNameCount + 1}`;
 
   const handleDelete = async (id: string) => {
     setConfirmDeleteId(null);
@@ -108,9 +132,8 @@ export default function ProjectWelcome() {
                     <span className="truncate text-sm font-medium text-slate-700">
                       📁 {p.name}
                     </span>
-                    <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
-                      {PROJECT_STATUS_LABEL[p.status] ?? p.status}
-                    </span>
+                    {/* v3.2.1 P2-4：状态徽标改用 ProjectStatusBadge 共用组件 */}
+                    <ProjectStatusBadge status={p.status} variant="card" />
                   </button>
                   {confirmDeleteId === p.id ? (
                     <span className="flex shrink-0 items-center gap-1 text-[11px]">
@@ -163,9 +186,12 @@ export default function ProjectWelcome() {
             className="mt-5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition-colors focus:border-brand"
           />
           {sameNameCount > 0 && (
+            // v3.2.1 P2-6：用 predictedName 显示预测的自动名（按后端 sanitize + 后缀规则推算）。
+            // 之前写死 sameNameCount + 1 可能在 sanitize 后变化时和后端实际差 1，
+            // 现在用 sanitize 后的 base 匹配，更贴近主进程 dirToDisplayName 的行为。
             <p className="mt-2 text-left text-xs text-amber-600">
-              ⚠️ 已有 {sameNameCount} 个同名项目「{trimmedName}」，建议直接打开已有项目；仍要新建将自动命名为「
-              {trimmedName}-{sameNameCount + 1}」
+              ⚠️ 已有 {sameNameCount} 个同名项目「{trimmedName}」，建议直接打开已有项目；
+              仍要新建将自动命名为「{predictedName}」
             </p>
           )}
           {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
@@ -182,9 +208,9 @@ export default function ProjectWelcome() {
           </p>
         </div>
 
-        {/* 主流程预告：让用户知道接下来会发生什么 */}
+        {/* 主流程预告：让用户知道接下来会发生什么（与 PRD v3.2 四大模块对齐） */}
         <div className="mt-6 flex flex-wrap items-center justify-center gap-y-1 text-xs text-slate-400">
-          {['💬 聊需求', '🗺️ 版本分段', '🤖 自动写代码', '🔍 预览调整', '📦 导出使用'].map((s, i) => (
+          {['💬 聊需求', '🤖 自动开发', '🧪 自动测试', '🔍 预览调整', '🚀 一键部署'].map((s, i) => (
             <span key={s} className="flex items-center">
               {i > 0 && <span className="mx-1.5 text-slate-300">→</span>}
               <span>{s}</span>

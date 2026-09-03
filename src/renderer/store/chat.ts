@@ -59,9 +59,36 @@ export interface ChatMessageUI {
   reasoning?: string;
   timestamp: string;
   options?: ChatOption[];
+  /**
+   * v3.2.1 P2-18：消息元数据，用于来源追踪与清理。
+   * - sessionId：消息所属「会话/流程」标识（如 "deploy-assistant-${projectId}-${sessionKey}"）。
+   *   切换项目或主动关闭流程时，调用方可通过 sessionId 批量清理该流程的残留消息，
+   *   避免消息流混入旧项目的助手消息造成认知混乱。
+   */
+  metadata?: {
+    sessionId?: string;
+    /** 消息来源通道（如 'deploy-assistant' / 'auto-test' / 'main-chat'） */
+    channel?: string;
+    /**
+     * 修复 P0-4：选中元素上下文。消息携带此字段时，Message.tsx 渲染"关于 [元素]"角标，
+     * 让用户能识别"这条消息是关于哪个 UI 元素的"——避免 DraggableChat / ElementInspector
+     * 双输入框跨场景时上下文串台造成的认知混乱。
+     * - description：来自 ElementInfo 的可读描述（如"主提交按钮"）
+     * - tag：HTML 标签（button / div / span）
+     * - selector：选择器（用于去重 / 调试，不直接展示）
+     */
+    contextElement?: {
+      description: string;
+      tag: string;
+      selector: string;
+    };
+  };
 }
 
-/** 重新进入中途项目时的进度引导（AI 助理汇报进度 + 继续下一步） */
+/** 重新进入中途项目时的进度引导（AI 助理汇报进度 + 继续下一步）。
+ * v0.1.02 P3-AUDIT：区分 user 主动重测（'auto-test'，重置失败计数）与
+ * InterruptBanner 自动倒计时触发的内部重试（'auto-test-retry'，保留失败计数，否则指数退避的 3 次上限永远到不了）。
+ */
 export type ResumeAction =
   | 'confirm-requirements'
   | 'confirm-plan'
@@ -70,6 +97,7 @@ export type ResumeAction =
   | 'refresh-status'
   | 'open-browser'
   | 'auto-test'
+  | 'auto-test-retry'
   | 'none';
 
 export interface ResumeGuide {
@@ -119,9 +147,18 @@ interface ChatState {
    * 测试被中断提示横幅：主进程推送 signal.type='error' 且 autoTestRunning=true 时出现，
    * AssistantPanel 据此渲染 amber banner + 倒计时自动重试入口。
    * - reason：信号文案（透传给用户）
-   * - retryAt：自动重试的 ms 时间戳（Date.now()+5000）
+   * - retryAt：自动重试的 ms 时间戳（Date.now()+指数退避）。
+   *   v0.1.02 P0-3：传 null 表示「已达重试上限，请手动重试」，banner 取消倒计时。
    */
-  interruptBanner: { reason: string; retryAt: number } | null;
+  interruptBanner: { reason: string; retryAt: number | null } | null;
+  /**
+   * v0.1.02 P0-3：自动测试连续失败的累计次数。
+   * - 每次收到 error 信号且 autoTestRunning=true 时 +1
+   * - 触发自动重试（AssistantPanel 倒计时到点）或测试成功完成时清零
+   * - 累计达到 3 次后停止自动重试，banner 显示「请手动重试」
+   * 同一项目的连续失败计数；切换项目时重置。
+   */
+  autoTestRetryCount: number;
   /**
    * 最近一次「一键修复」指令发出的时间戳（ms）。
    * 由 App.tsx 的 onSendModifyFix 在发送 buildFixInstruction/buildSingleFixInstruction 时设置。
@@ -162,8 +199,18 @@ interface ChatState {
   /**
    * 设置测试中断提示横幅（reason 透传 DSH 信号文案；retryAt 为自动重试时间戳）。
    * banner 显示期间由 AssistantPanel 内的 useEffect 倒计时触发 onAction('auto-test')。
+   * v0.1.02 P0-3：retryAt 允许为 null，表示「已达重试上限，请手动重试」。
    */
-  setInterruptBanner: (banner: { reason: string; retryAt: number } | null) => void;
+  setInterruptBanner: (banner: { reason: string; retryAt: number | null } | null) => void;
+  /**
+   * v0.1.02 P0-3：自增自动测试失败计数。AssistantPanel 触发自动重试或用户手动重试时调用。
+   * 暴露为单独 action 便于在 useChatEvents 中精确控制（不是单纯 set，复用现有调用点）。
+   */
+  incrementAutoTestRetry: () => void;
+  /**
+   * v0.1.02 P0-3：清零自动测试失败计数。测试成功完成或用户手动触发重置时调用。
+   */
+  resetAutoTestRetry: () => void;
   /**
    * 设置最近一次"一键修复"指令时间戳；AssistantPanel 据此渲染 SuggestRetestCard。
    * 传 null 表示「稍后」按钮主动关闭提示卡。
@@ -176,10 +223,41 @@ interface ChatState {
     msg: Omit<ChatMessageUI, 'id' | 'timestamp'> & { id?: string; timestamp?: string },
   ) => void;
   clearMessages: () => void;
+  /**
+   * v3.2.1 P2-18：按 metadata.sessionId / channel 清理消息。
+   * 用于切换项目或关闭流程时清理该流程残留的助手消息，避免旧项目消息混入新项目。
+   * - sessionId：精确匹配 metadata.sessionId（推荐用法，如 `deploy-assistant-{projectId}-{sessionKey}`）
+   * - channel：模糊匹配 metadata.channel 前缀（用于批量清理同通道的所有 session，如清掉所有 'deploy-assistant' 消息）
+   * 二者传空则 noop；都不传时建议改用 clearMessages()。
+   */
+  cleanMessagesBySession: (filter: { sessionId?: string; channel?: string }) => void;
   loadHistory: (projectId: string) => Promise<void>;
-  sendMessage: (text: string) => Promise<void>;
+  /**
+   * 发送一条用户消息到主进程。
+   * v0.1.02 P1-4：options.selectedElement 用于临时覆盖 store 中的 selectedElement（如 ElementInspector
+   * 内的 MiniChat 直接传入选中元素，避免依赖 store 全局状态）。不传时使用 store 的 selectedElement。
+   */
+  sendMessage: (text: string, options?: {
+      /**
+       * 修复 P0-4：临时覆盖 store.selectedElement（ElementInspector 内嵌 MiniChat 专用，
+       * 不修改全局 store，避免污染 DraggableChat 的元素上下文）。同时在 push 的用户消息
+       * 里携带 metadata.contextElement，让 Message.tsx 在气泡上渲染"关于 [元素]"角标。
+       */
+      selectedElement?: ElementInfo;
+      /**
+       * 修复 P0-4：消息 metadata 透传。ElementInspector 调用时附 contextElement 即可。
+       * 默认 undefined → 走原有 pushMessage 路径，不会自动给每个用户消息加角标。
+       */
+      metadata?: ChatMessageUI['metadata'];
+    }) => Promise<void>;
   /** 停止当前 AI 任务（中断 dsh 子进程） */
   stopTask: () => Promise<void>;
+  /**
+   * v3.2.2 P0-5：取消指定项目上的所有后台任务（开发 / 导出 / 打包）。
+   * 由 App.tsx 在 currentProjectId 变化时调用上一个 projectId，避免旧项目的
+   * 后台任务继续烧 token / CPU / 磁盘。三个 IPC 并发调用，任一失败不影响其他。
+   */
+  cancelActiveTasks: (projectId: string) => Promise<void>;
 }
 
 let msgSeq = 0;
@@ -208,8 +286,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   elementInfo: null,
   interruptBanner: null,
   lastTestFixAt: null,
+  // v0.1.02 P0-3：自动测试连续失败计数，0 表示正常；切项目/成功完成时清零
+  autoTestRetryCount: 0,
 
-  setProject: (id) =>
+  setProject: (id) => {
     set({
       currentProjectId: id,
       requirements: null,
@@ -235,7 +315,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
       devProgress: [],
       interruptBanner: null,
       lastTestFixAt: null,
-    }),
+      // v0.1.02 P0-3：跨项目隔离失败计数
+      autoTestRetryCount: 0,
+    });
+    // v0.1.02 P1-6：项目切换时同步重置 ui store 的 aiChatHidden，
+    // 避免上一个项目的"🔍 元素 Tab + 选中元素 → 浮窗隐藏"状态污染新项目。
+    // 不在这里重置，新项目的 chat 视图一开始浮窗仍是隐藏的（验收报告 P1-6）。
+    useUiStore.getState().setAiChatHidden(false);
+    // v3.2.1 P2-1：项目切换时同步清空全局聊天草稿，避免上一个项目写到一半的输入
+    // 被带入新项目（验收报告 P2-1：UI store 缺少项目维度的草稿隔离）。
+    // chatDraft 设计为同一项目内跨视图共享（chat ↔ preview），不应跨项目残留。
+    useUiStore.getState().clearChatDraft();
+  },
   setRequirements: (req) => set({ requirements: req }),
   setProjectStatus: (status) => set({ projectStatus: status }),
   setVersionPlan: (plan) => set({ versionPlan: plan }),
@@ -256,6 +347,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setAutoTestLastSummary: (summary) => set({ autoTestLastSummary: summary }),
   setInterruptBanner: (banner) => set({ interruptBanner: banner }),
   setLastTestFixAt: (ts) => set({ lastTestFixAt: ts }),
+  // v0.1.02 P0-3：自动测试失败计数器自增
+  incrementAutoTestRetry: () => set((s) => ({ autoTestRetryCount: s.autoTestRetryCount + 1 })),
+  // v0.1.02 P0-3：清零自动测试失败计数器（成功完成 / 用户手动重置时调用）
+  resetAutoTestRetry: () => set({ autoTestRetryCount: 0 }),
   resetAutoTestPlan: () =>
     set({
       autoTestPlan: null,
@@ -269,12 +364,62 @@ export const useChatStore = create<ChatState>((set, get) => ({
       interruptBanner: null,
       // 同步清掉最近修复时间戳，避免跨次测试误导 SuggestRetestCard
       lastTestFixAt: null,
+      // v3.2.1 P2-11：同时清掉旧报告，避免新一轮测试启动时还展示上一次的报告
+      // （中途刷新页面 / 切项目再切回也会有"旧报告残留"的认知干扰）
+      lastTestReport: null,
+      // 注意：autoTestLastSummary / autoTestExpectedDurationMs 不在这里清掉。
+      // 它们的生命周期是"上一个测试周期 → 学习预估"，由 setProject 跨项目切换时清掉
+      // （避免上一个项目的耗时被带入新项目）。同一项目内重跑测试时保留它们，
+      // AutoTestPlanCard 才会基于"上一轮跑了多久"动态调整预估。
+      // v3.2.1 P2-11 之前曾在这里清掉，结果导致同一项目内反复跑测试时预估永远停在 25s，
+      // 不再有"越跑越准"的学习效果，已回退。
+      // 注意：autoTestRetryCount 的清零走独立的 resetAutoTestRetry action。
+      // 把它塞到这里会导致 error 分支里的 incrementAutoTestRetry 被反向重置，
+      // 失败计数永远停在 1，无法触发 3 次上限（v0.1.02 P0-3 实测坑）。
+      // success 分支已在 useChatEvents 的 'message' 回调里显式调 resetAutoTestRetry。
     }),
   appendDevProgress: (line) =>
     set((s) => ({ devProgress: [...s.devProgress.slice(-40), line] })),
   clearDevProgress: () => set({ devProgress: [] }),
 
   pushMessage: (msg) => {
+    // v3.2.1 P2-15：去重 + 限流。
+    // - 连续 3 条同 role + 同 content 的系统消息跳过（避免相同内容反复刷屏）：
+    //   实测"自动测试进行中"等高频信号偶发重复 push 3-5 次，影响可读性。
+    // - 同 channel + 同前缀（content 前 16 字符）在 1.5s 窗口内重复出现也跳过，
+    //   防止主进程 / preload 在快速重试时刷出多条近乎相同的提示。
+    // - 用户消息和助手消息不去重（用户可能真发重复消息；助手消息是真实流）。
+    // - 带 sessionId 的消息不参与去重（清理靠 cleanMessagesBySession，自身不该被吞）。
+    const last = get().messages;
+    const tail = last.slice(-3);
+    if (msg.role === 'system' && !msg.metadata?.sessionId) {
+      const dupCount = tail.filter(
+        (m) => m.role === 'system' && m.content === msg.content,
+      ).length;
+      if (dupCount >= 2) {
+        // 已有 ≥2 条相同 → 这是第 3+ 次重复，跳过
+        return;
+      }
+      // 同 channel + 同前缀 1.5s 内限流
+      const channel = msg.metadata?.channel;
+      const prefix = msg.content.slice(0, 16);
+      const now = Date.now();
+      // 兼容 ES2021-：从尾部向前扫最多 10 条，命中即停
+      let recentDup: ChatMessageUI | undefined;
+      for (let i = last.length - 1; i >= Math.max(0, last.length - 10); i--) {
+        const m = last[i];
+        if (
+          m.role === 'system' &&
+          m.metadata?.channel === channel &&
+          m.content.slice(0, 16) === prefix &&
+          now - new Date(m.timestamp).getTime() < 1500
+        ) {
+          recentDup = m;
+          break;
+        }
+      }
+      if (recentDup) return;
+    }
     msgSeq += 1;
     const full: ChatMessageUI = {
       ...msg,
@@ -285,6 +430,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   clearMessages: () => set({ messages: [] }),
+
+  cleanMessagesBySession: (filter) => {
+    const { sessionId, channel } = filter;
+    if (!sessionId && !channel) return;
+    set((s) => ({
+      messages: s.messages.filter((m) => {
+        const meta = m.metadata;
+        if (!meta) return true; // 无 metadata 的消息（用户/主进程早期推送）保留
+        if (sessionId && meta.sessionId === sessionId) return false;
+        if (channel && meta.channel === channel && !sessionId) return false;
+        return true;
+      }),
+    }));
+  },
 
   loadHistory: async (projectId) => {
     try {
@@ -303,7 +462,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  sendMessage: async (text) => {
+  sendMessage: async (text, options) => {
     const { currentProjectId, pushMessage, selectedElement } = get();
     const trimmed = text.trim();
     if (!trimmed || !currentProjectId) return;
@@ -315,14 +474,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
-    pushMessage({ role: 'user', content: trimmed });
+    pushMessage({ role: 'user', content: trimmed, metadata: options?.metadata });
     set({ isProcessing: true });
+
+    // v0.1.02 P1-4：options.selectedElement 优先级 > store.selectedElement。
+    // 这样 ElementInspector 内的 MiniChat 即使 store 里 selectedElement 已被清掉，
+    // 也能带上元素上下文（验收报告 P1-4）。
+    const effectiveSelectedElement = options?.selectedElement ?? selectedElement;
 
     try {
       const result = await window.electron.chat.send({
         projectId: currentProjectId,
         message: trimmed,
-        selectedElement: selectedElement ?? undefined,
+        selectedElement: effectiveSelectedElement ?? undefined,
       });
       // 主进程失败时以 { success:false, error } resolve（不会 reject），需自行收尾
       if (!result.success) {
@@ -357,10 +521,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   stopTask: async () => {
-    const { currentProjectId, pushMessage } = get();
+    const { currentProjectId, pushMessage, autoTestRunning } = get();
     if (!currentProjectId) return;
     await window.electron.chat.stop({ projectId: currentProjectId }).catch(() => undefined);
     pushMessage({ role: 'system', content: '⏹ 已停止生成' });
     set({ isProcessing: false, thinkingText: null });
+    // v3.2.1 P2-12 补强：自动测试进行中点"立即中断"时，同步复位运行态，
+    // 否则 AutoTestPlanCard 会继续渲染"进行中"步骤指示器，用户以为中断没生效。
+    // 注意：必须复用 resetAutoTestPlan（含清 interruptBanner / lastTestReport / lastTestFixAt）
+    // 否则中断态横幅会残留，但该函数又必须保留 autoTestLastSummary / autoTestExpectedDurationMs
+    // （学习预估需要历史摘要），所以不能粗暴 set 多字段——直接调 action 是最稳的写法。
+    if (autoTestRunning) {
+      get().resetAutoTestPlan();
+    }
+  },
+
+  // v3.2.2 P0-5：并发取消旧项目的所有后台任务（开发 / 导出 / 打包）。
+  // 任一 IPC 失败不影响其他（Promise.allSettled），只 warn 不 throw，避免切项目流程被中断。
+  cancelActiveTasks: async (projectId) => {
+    if (!projectId) return;
+    await Promise.allSettled([
+      window.electron.project.cancelDevelopment({ projectId }).catch((err) => {
+        console.warn(`[FreeCoder] 取消开发任务失败（${projectId}）：`, err);
+      }),
+      window.electron.export.cancel({ projectId }).catch((err) => {
+        console.warn(`[FreeCoder] 取消导出任务失败（${projectId}）：`, err);
+      }),
+      window.electron.package.cancel({ projectId }).catch((err) => {
+        console.warn(`[FreeCoder] 取消打包任务失败（${projectId}）：`, err);
+      }),
+    ]);
   },
 }));

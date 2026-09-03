@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import AdmZip from 'adm-zip';
 import { FileStorageManager } from '../../src/main/storage';
 import { plainEncryptor } from '../../src/main/security/encryption';
-import { ExportService } from '../../src/main/export/service';
+import { ExportService, ExportCancelledError } from '../../src/main/export/service';
 import type { ProjectMeta } from '../../src/main/storage/types';
 
 /**
@@ -134,4 +134,86 @@ describe('导出部署包', () => {
       await fs.rm(dir, { recursive: true, force: true });
     }
   });
+
+  /**
+   * v3.2.2 P0-5：后台任务取消（ExportService.cancel）。
+   * 切项目时由前端 cancelActiveTasks 调用，避免旧项目导出继续消耗 CPU/磁盘。
+   * 已被取消的 exportProject 应该抛 ExportCancelledError，让 IPC 层识别并广播 status='cancelled'。
+   */
+  describe('取消（P0-5）', () => {
+    it('cancel 未注册的项目返回 false（幂等）', () => {
+      const exporter = new ExportService(new FakeInertStorage());
+      expect(exporter.cancel('never-started')).toBe(false);
+      expect(exporter.cancel('never-started')).toBe(false);
+    });
+
+    it('cancel 触发后 exportProject 抛 ExportCancelledError + 清理临时目录', async () => {
+      // 用一个有慢 getProject 的桩，让 cancel 有时间触发
+      const storage = new FakeInertStorage();
+      storage.delay = 30; // getProject 慢 30ms，cancel 在此期间触发
+      const meta = await storage.createProject('测试');
+      await storage.updateProjectMeta(meta.id, { status: 'ready' });
+
+      const exporter = new ExportService(storage);
+      const promise = exporter.exportProject(meta.id);
+
+      // 立即取消
+      const cancelled = exporter.cancel(meta.id);
+      expect(cancelled).toBe(true);
+
+      // 导出抛 ExportCancelledError
+      await expect(promise).rejects.toBeInstanceOf(ExportCancelledError);
+    });
+
+    it('cancel 后 Map 被清理 → 二次 cancel 返回 false', async () => {
+      const storage = new FakeInertStorage();
+      storage.delay = 30;
+      const meta = await storage.createProject('测试');
+      await storage.updateProjectMeta(meta.id, { status: 'ready' });
+
+      const exporter = new ExportService(storage);
+      const promise = exporter.exportProject(meta.id);
+
+      exporter.cancel(meta.id);
+      await expect(promise).rejects.toBeInstanceOf(ExportCancelledError);
+
+      // Map 已清理，第二次 cancel 返回 false
+      expect(exporter.cancel(meta.id)).toBe(false);
+    });
+  });
 });
+
+/**
+ * v3.2.2 P0-5 测试用惰性 StorageManager：getProject 默认慢 0ms，可注入 delay 用于 cancel 测试。
+ * 只实现 cancel 测试需要的最小子集（createProject / getProject / updateProjectMeta），其余方法抛 noop 占位。
+ */
+class FakeInertStorage implements Pick<import('../../src/main/storage/types').StorageManager, 'createProject' | 'getProject' | 'updateProjectMeta' | 'getProjectCodePath'> {
+  delay = 0;
+  private projects = new Map<string, ProjectMeta>();
+  async createProject(name: string): Promise<ProjectMeta> {
+    const meta: ProjectMeta = {
+      id: `fake-${this.projects.size + 1}`,
+      name,
+      status: 'draft',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastOpenedAt: new Date().toISOString(),
+      codePath: './code',
+      exportCount: 0,
+      totalChatMessages: 0,
+    };
+    this.projects.set(meta.id, meta);
+    return meta;
+  }
+  async getProject(id: string): Promise<ProjectMeta | null> {
+    if (this.delay > 0) await new Promise((r) => setTimeout(r, this.delay));
+    return this.projects.get(id) ?? null;
+  }
+  async updateProjectMeta(id: string, updates: Partial<ProjectMeta>): Promise<void> {
+    const m = this.projects.get(id);
+    if (m) this.projects.set(id, { ...m, ...updates });
+  }
+  getProjectCodePath(id: string): string {
+    return `/fake/projects/${id}/code`;
+  }
+}

@@ -1,0 +1,9 @@
+{
+  // 仅为让 VSCode TypeScript Language Server 在打开 src/renderer/** 时能就近找到 tsconfig，
+  // 复用 tsconfig.renderer.json 的 compilerOptions（paths/@shared/*、lib、jsx 等）。
+  // 不放这个文件时，TS server 会沿目录向上找到根 tsconfig.json，而那里 exclude 了 src/renderer/**，
+  // 导致路径映射与 src/shared/types/electron.d.ts 的全局 Window 增强不被加载，
+  // 进而误报 window.electron / @shared/types/* 找不到等一系列错误。
+  "extends": "../../tsconfig.renderer.json",
+  "include": ["./**/*", "../../src/shared/**/*"]
+}

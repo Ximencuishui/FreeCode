@@ -57,4 +57,17 @@ export function registerPackageIpc(storage: StorageManager): void {
       }
     },
   );
+
+  // v3.2.2 P0-5：取消指定项目的打包任务（切项目时由前端调用）
+  handleIpc<{ projectId: string }, { success: boolean; cancelled: boolean }>(
+    IpcChannels.packageCancel,
+    async (_event, params) => {
+      const projectId = params?.projectId?.trim();
+      if (!projectId) {
+        throw new IpcError('INVALID_PARAMS', '项目 ID 不能为空');
+      }
+      const cancelled = packager.cancel(projectId);
+      return { success: true, cancelled };
+    },
+  );
 }

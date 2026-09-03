@@ -36,8 +36,10 @@ export interface PackagerOptions {
 }
 
 export class PackagerService {
-  /** 当前进行中的子进程（用于取消 / 防止并发） */
-  private current: import('node:child_process').ChildProcess | null = null;
+  /** v3.2.2 P0-5：按项目跟踪当前打包子进程，替代旧的单实例 `current`。
+   *  支持多项目间切换：旧项目的打包子进程可以独立 kill，不影响新项目。
+   */
+  private readonly currentByProject = new Map<string, import('node:child_process').ChildProcess>();
 
   constructor(private readonly storage: StorageManager) {}
 
@@ -49,8 +51,8 @@ export class PackagerService {
     projectId: string,
     opts: PackagerOptions,
   ): Promise<{ packageId: string }> {
-    if (this.current) {
-      throw new IpcError('INVALID_PARAMS', '已有打包任务在进行中，请等待完成后再试');
+    if (this.currentByProject.has(projectId)) {
+      throw new IpcError('INVALID_PARAMS', '该项目已有打包任务在进行中，请等待完成后再试');
     }
     const project = await this.storage.getProject(projectId);
     if (!project) throw new IpcError('PROJECT_NOT_FOUND', '项目不存在');
@@ -68,13 +70,35 @@ export class PackagerService {
     return { packageId };
   }
 
-  /** 取消当前任务（仅触发信号，进程退出由 electron-builder 自然结束） */
-  cancel(): boolean {
-    if (this.current) {
-      this.current.kill('SIGTERM');
-      return true;
-    }
-    return false;
+  /**
+   * v3.2.2 P0-5：取消指定项目的打包任务（仅触发 SIGTERM，进程退出由 electron-builder 自然结束）。
+   * 返回是否有任务被中断。同项目重复 cancel：幂等返回 false。
+   * 切项目时由 IPC 层 package:cancel 调用，避免子进程漂到新项目。
+   *
+   * v3.2.2 P0-5-2：electron-builder 接到 SIGTERM 可能不退出（其本身可能 fork 子进程继续打包），
+   * 这里设 5 秒兜底：进程仍存活 → escalate 为 SIGKILL 强杀，避免后台进程残留。
+   * 5 秒足够 electron-builder 完成日志 flush 与 zip 收尾，参考 WP-25 打包实测最长 ~3 秒。
+   */
+  cancel(projectId: string): boolean {
+    const child = this.currentByProject.get(projectId);
+    if (!child) return false;
+    child.kill('SIGTERM');
+    // 5 秒后仍存活 → SIGKILL 兜底。判断依据仅用 Map.get：child 收到 'exit' 事件时
+    // child.on('exit') handler 会 delete Map，所以 Map 里还能查到 child 说明还没退出。
+    // 注意：不能用 `!child.killed`——Node.js ChildProcess.killed 在 kill() 调用后就置 true，
+    // 5 秒后永远是 true，会让 escalate 永远不触发（dead code）。
+    const timer = setTimeout(() => {
+      if (this.currentByProject.get(projectId) === child) {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          /* 进程可能已退出，ignore */
+        }
+      }
+    }, 5000);
+    // child 正常退出后清掉 timer，避免无用 callback
+    child.once('exit', () => clearTimeout(timer));
+    return true;
   }
 
   // ============== 流水线 ==============
@@ -128,7 +152,8 @@ export class PackagerService {
 
       // 4) electron-builder
       emit('electron-builder', '调用 electron-builder（首次约 5-10 分钟）…');
-      const builderResult = await this.spawnBuilder(workDir, packageId, emit, opts.timeoutMs);
+      // v3.2.2 P0-5：spawnBuilder 需要 projectId 才能把子进程索引到 Map 上供 cancel 查询
+      const builderResult = await this.spawnBuilder(projectId, workDir, packageId, emit, opts.timeoutMs);
       if (builderResult === 'cancelled') {
         opts.onComplete({
           packageId,
@@ -165,7 +190,8 @@ export class PackagerService {
         error: msg,
       });
     } finally {
-      this.current = null;
+      // v3.2.2 P0-5：仅在 spawnBuilder 仍未删除时清掉（正常退出流程在 on('exit') 里已 delete）
+      this.currentByProject.delete(projectId);
     }
   }
 
@@ -175,6 +201,7 @@ export class PackagerService {
    * electron-builder 输出逐行（按 \n）作为 detail 通过 emit 转发，前端可以做流式日志。
    */
   private spawnBuilder(
+    projectId: string,
     workDir: string,
     packageId: string,
     emit: (stage: PackageStage, message: string, detail?: string) => void,
@@ -197,7 +224,8 @@ export class PackagerService {
           shell: process.platform === 'win32',
         },
       );
-      this.current = child;
+      // v3.2.2 P0-5：按 projectId 索引，供 cancel(projectId) 找到目标子进程
+      this.currentByProject.set(projectId, child);
 
       let cancelled = false;
       let buffer = '';
@@ -222,7 +250,8 @@ export class PackagerService {
 
       child.on('error', (err) => {
         clearTimeout(timer);
-        if (this.current === child) this.current = null;
+        // v3.2.2 P0-5：按 projectId 比较，避免误删并发新进程
+        if (this.currentByProject.get(projectId) === child) this.currentByProject.delete(projectId);
         // spawn 失败（找不到 binary）也算 failed
         emit('electron-builder', 'electron-builder', `[spawn error] ${err.message}`);
         resolve('failed');
@@ -230,7 +259,7 @@ export class PackagerService {
 
       child.on('exit', (code, signal) => {
         clearTimeout(timer);
-        if (this.current === child) this.current = null;
+        if (this.currentByProject.get(projectId) === child) this.currentByProject.delete(projectId);
         if (cancelled || signal === 'SIGTERM') {
           resolve('cancelled');
           return;
@@ -247,7 +276,7 @@ export class PackagerService {
         }
       });
 
-      // 取消指令触发时（cancel()），kill 子进程；on('exit') 会再次走 cancelled 分支
+      // 取消指令触发时（cancel(projectId)），kill 子进程；on('exit') 会再次走 cancelled 分支
       void packageId; // 保留供未来扩展：把 cancel 跟具体 packageId 绑定
     });
   }

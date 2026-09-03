@@ -2,7 +2,7 @@
  * 项目里程碑庆祝卡（v3.2，PRD 2.4.6）。
  * 部署完成后在聊天流顶部常驻 24 小时，强化"对话 → 开发 → 测试 → 部署"闭环成就感。
  *
- * 数据通过 props 传入，不直接读 store，便于复用（DeployPanel 完成态、Chat 流顶部、
+ * 数据通过 props 传入，不直接读 store，便于复用（DeployView 完成态、Chat 流顶部、
   自动恢复项目等场景都能渲染）。
  */
 export interface MilestoneData {

@@ -1,18 +1,22 @@
 /**
  * 导出状态。
+ * v3.2.2 P0-1 重构：删除 visible / open / close 三个字段（原 DeployPanel 模态控制用）。
+ * 「🚀 部署」现在是持久化视图（DeployView），由 uiStore.currentView 切换，
+ * 不再需要导出层维护自己的可见性状态。
  */
 import { create } from 'zustand';
-import type { DeployConfig } from '@shared/types/export';
+import type { DeployConfig, ExportCompleteEvent } from '@shared/types/export';
 
 export interface ExportState {
-  visible: boolean;
+  /** 高级导出（DeployConfigWizard）是否正在打包 */
   exporting: boolean;
+  /** 最近一次导出是否成功 */
   done: boolean;
+  /** 导出产物的 zip 路径（成功时存在） */
   zipPath: string | null;
+  /** 错误信息（失败时存在） */
   error: string | null;
 
-  open: () => void;
-  close: () => void;
   startExport: (projectId: string, config?: DeployConfig) => Promise<void>;
   reset: () => void;
 }
@@ -33,25 +37,26 @@ export const useExportStore = create<ExportState>((set) => {
   };
 
   return {
-    visible: false,
     exporting: false,
     done: false,
     zipPath: null,
     error: null,
 
-    open: () => set({ visible: true, exporting: false, done: false, error: null, zipPath: null }),
-    close: () => set({ visible: false }),
     startExport,
     reset: () => set({ exporting: false, done: false, error: null, zipPath: null }),
   };
 });
 
-/** 处理 export:complete 事件（由 App 调用） */
-export function handleExportComplete(data: {
-  status: 'success' | 'failed';
-  zipPath?: string;
-  error?: string;
-}): void {
+/**
+ * 处理 export:complete 事件（由 App 调用）。
+ * v3.2.2 P0-5：增加 'cancelled' 分支 —— 切项目时主动取消的导出任务不算失败，
+ * 不写 error、不弹 "导出失败"，让用户感知不到噪音；只把 exporting 置 false。
+ */
+export function handleExportComplete(data: ExportCompleteEvent): void {
+  if (data.status === 'cancelled') {
+    useExportStore.setState({ exporting: false });
+    return;
+  }
   useExportStore.setState({
     exporting: false,
     done: data.status === 'success',

@@ -105,7 +105,8 @@ export interface ExportStartResult {
 
 export interface ExportCompleteEvent {
   exportId: string;
-  status: 'success' | 'failed';
+  /** v3.2.2 P0-5：增加 'cancelled' 用于切项目时主动取消的导出任务（区别于真正的失败） */
+  status: 'success' | 'failed' | 'cancelled';
   zipPath?: string;
   error?: string;
 }

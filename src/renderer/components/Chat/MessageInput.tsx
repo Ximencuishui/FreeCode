@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface MessageInputProps {
   disabled?: boolean;
@@ -27,6 +27,14 @@ export default function MessageInput({
     }
   };
 
+  // v3.2.2 P3-1：进入对话页（且未禁用）时自动聚焦输入框，避免键盘用户
+  // 每次都要先 Tab 一遍才能开始打字。useEffect 保证不抢初次渲染之前的焦点。
+  useEffect(() => {
+    if (disabled) return;
+    const t = window.setTimeout(() => textareaRef.current?.focus(), 80);
+    return () => window.clearTimeout(t);
+  }, [disabled]);
+
   return (
     <div className="flex items-end gap-2">
       <textarea
@@ -37,6 +45,7 @@ export default function MessageInput({
         rows={1}
         placeholder={placeholder}
         disabled={disabled}
+        aria-label="对话输入框（Enter 发送，Shift+Enter 换行）"
         className="max-h-32 min-h-[40px] flex-1 resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition-colors focus:border-brand disabled:bg-slate-50"
       />
       <button

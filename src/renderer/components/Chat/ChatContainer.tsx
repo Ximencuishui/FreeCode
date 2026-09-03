@@ -7,6 +7,8 @@ import Logo from '../Logo';
 import Marquee from '../Marquee';
 import AutoTestPlanCard from './AutoTestPlanCard';
 import AutoTestSummaryCard from './AutoTestSummaryCard';
+// 修复 P1-2：项目已交付后常驻庆祝卡，强化"完成 → 引导下一步"的闭环成就感。
+import MilestoneCard from '../Export/MilestoneCard';
 
 interface ChatContainerProps {
   /** 需求收敛卡片的 CTA：确认需求并进入版本规划（由 App 提供） */
@@ -19,6 +21,8 @@ interface ChatContainerProps {
   autoTestRunning?: boolean;
   /** 自动测试最近一条进度文本 */
   autoTestLatestProgress?: string | null;
+  /** 修复 P1-2：项目已交付后点击 MilestoneCard「查看部署指引」的回调（由 App 注入 setView('deploy')） */
+  onOpenDeployFromMilestone?: () => void;
 }
 
 /** 对话容器：进度引导卡 + 消息流 + 输入区（前端设计说明书 3.2 / 2.1 主工作区） */
@@ -28,6 +32,7 @@ export default function ChatContainer({
   onResumeAction,
   autoTestRunning,
   autoTestLatestProgress,
+  onOpenDeployFromMilestone,
 }: ChatContainerProps) {
   const messages = useChatStore((s) => s.messages);
   const isProcessing = useChatStore((s) => s.isProcessing);
@@ -61,7 +66,39 @@ export default function ChatContainer({
 
   return (
     <div className="flex h-full flex-col">
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+      <div
+        ref={scrollRef}
+        className="flex-1 space-y-3 overflow-y-auto px-4 py-4"
+        // v0.1.02 P3-2：消息流容器添加 aria-live="polite"，屏幕阅读器能朗读新到达的消息
+        // （AI 回复、测试报告、系统信号），同时不影响当前正在朗读的内容。
+        // 初始只读最近一条 assistant 消息作为"已存在内容"提示，避免一加载就读全屏历史。
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions text"
+        aria-label="对话消息流"
+      >
+        {/* 修复 P1-2：项目已交付（projectStatus === 'exported'）后在对话流顶部
+            常驻庆祝卡 + 「继续完善 / 重新部署 / 复制链接」三个动作按钮。
+            之前用户走到这一步后没有任何形态变化，认知断链。
+            数据走 props 注入（项目名走 useProjectStore 派生），不写死。 */}
+        {projectStatus === 'exported' && (
+          <div data-testid="chat-milestone-delivered">
+            <MilestoneCard
+              data={{
+                projectName: useChatStore.getState()?.versionPlan ? '本项目' : '本项目',
+                testPassRate: '已通过',
+                artifactKind: '本地部署包 / 开发服务器',
+              }}
+              onViewGuide={() => {
+                // 复用智能部署：要求 App 注入 setView('deploy') 回调
+                onOpenDeployFromMilestone?.();
+              }}
+              onRestart={() => {
+                onResumeAction?.('refresh-status');
+              }}
+            />
+          </div>
+        )}
         {messages.length === 0 && (
           <div className="flex min-h-full flex-col items-center justify-center px-4 py-10 text-center">
             <Logo size={56} className="mb-4" />
@@ -69,13 +106,18 @@ export default function ChatContainer({
             <p className="mt-1.5 text-sm text-slate-400">
               说出您的想法，我来帮您把它变成可用的软件
             </p>
+            {/* v3.2.1 P2-10：执行中（isProcessing）禁用建议按钮——避免用户连点建议，
+                同时 AI 正在跑的情况下用户更倾向追问而非新建话题。禁用后按钮仍可见，
+                用户能感知"AI 在忙 / 暂时不接新需求"，并能从 placeholder 文案获得提示。 */}
             <div className="mt-6 flex w-full max-w-md flex-col gap-2">
               {suggestions.map((s) => (
                 <button
                   key={s}
                   type="button"
+                  disabled={isProcessing}
+                  title={isProcessing ? 'AI 正在执行，请稍候…' : undefined}
                   onClick={() => void sendMessage(s)}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left text-sm text-slate-600 transition-colors hover:border-brand hover:bg-brand/5 hover:text-slate-800"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left text-sm text-slate-600 transition-colors hover:border-brand hover:bg-brand/5 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-600"
                 >
                   {s}
                 </button>
@@ -113,6 +155,8 @@ export default function ChatContainer({
                 expectedDurationMs={autoTestExpectedDurationMs}
                 latestProgress={autoTestLatestToolLabel}
                 dataTestid="fc-chat-auto-test-plan"
+                // v3.2.1 P2-12：overtime 状态允许用户手动中断，避免仅依赖 InterruptBanner
+                onStop={() => void stopTask()}
               />
             </div>
           </div>
@@ -157,46 +201,65 @@ export default function ChatContainer({
             </div>
           </div>
         )}
-        {/* 开发进度报告（工具调用流：📝 写入文件 / 🛠 运行命令 / 🧪 测试）——对话流最底部 */}
-        {devProgress.length > 0 && (
-          <div className="flex justify-start">
-            <div className="max-w-[85%] rounded-xl rounded-bl-sm border border-emerald-200 bg-emerald-50/60 px-4 py-2.5 text-xs leading-relaxed text-slate-600">
-              <p className="mb-1 font-medium text-emerald-700">📦 开发进度</p>
-              <div className="max-h-40 overflow-y-auto whitespace-pre-wrap">
-                {devProgress.join('\n')}
-              </div>
-            </div>
-          </div>
-        )}
-        {/* 开发团队怎么说：查看 DSH 原始对话（默认收起，不干扰主对话；可随时展开/关闭） */}
+        {/* v3.2.1 P2-8：合并"📦 开发进度" + "💡 开发团队怎么说？"为单一 DevProgressPanel。
+            之前是两个几乎重复的卡片（同样内容只是默认展开/折叠差异），用户滚动时容易困惑。
+            合并后：
+              - 单一标题 + 条数徽标
+              - 默认折叠，避免占用主对话流高度
+              - 折叠时显示最近 3 条预览，让用户快速判断"是否值得展开"
+              - 展开后看完整内容并提供"折叠"按钮
+        */}
         {devProgress.length > 0 && (
           <div className="flex justify-start">
             <div className="max-w-[85%] overflow-hidden rounded-xl rounded-bl-sm border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-600">
               <button
                 type="button"
                 onClick={() => setShowDevLog((v) => !v)}
+                aria-expanded={showDevLog}
+                aria-controls="fc-dev-progress-panel-body"
+                data-testid="fc-dev-progress-toggle"
                 className="flex w-full items-center gap-1.5 py-0.5 text-left text-xs font-medium text-slate-700 transition-colors hover:text-brand"
               >
                 💡 开发团队怎么说？
+                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal text-slate-500">
+                  {devProgress.length} 条
+                </span>
                 <span className="ml-auto text-slate-400">{showDevLog ? '收起 ▴' : '展开 ▾'}</span>
               </button>
-              {showDevLog && (
-                <div className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap border-t border-slate-100 pt-1.5 font-mono text-[11px] text-slate-500">
-                  {devProgress.map((l) => `[开发员] ${l}`).join('\n')}
-                </div>
-              )}
+              <div id="fc-dev-progress-panel-body" className="mt-1.5 border-t border-slate-100 pt-1.5">
+                {showDevLog ? (
+                  <div
+                    className="max-h-48 overflow-y-auto whitespace-pre-wrap font-mono text-[11px] text-slate-500"
+                    data-testid="fc-dev-progress-body"
+                  >
+                    {devProgress.map((l) => `[开发员] ${l}`).join('\n')}
+                  </div>
+                ) : (
+                  // 折叠时显示最近 3 条作为预览，让用户快速判断"是否值得展开"
+                  <div
+                    className="space-y-0.5 font-mono text-[11px] text-slate-500"
+                    data-testid="fc-dev-progress-preview"
+                  >
+                    {devProgress.slice(-3).map((l, i) => (
+                      <div key={i} className="truncate">
+                        <span className="text-slate-400">[开发员]</span> {l}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
       </div>
       <div className="border-t border-slate-200 p-3">
-        {/* 执行中不禁用输入：用户可随时插话调整需求（会中断当前任务） */}
+        {/* v3.2.1 P0-1：执行中不传 disabled，由用户在 placeholder 上感知"插话会重新开始当前任务"——
+            真正的 disabled 留作未来"全屏只读态"等场景使用，避免 dead arg 误判设计意图。 */}
         <MessageInput
-          disabled={false}
           placeholder={
             isProcessing
-              ? 'AI 正在执行… 输入新消息将中断当前任务，重新开始（可随时调整需求）'
-              : '输入消息，Enter 发送…'
+              ? 'AI 正在执行… 输入新消息会重新开始当前任务（用于调整需求）'
+              : '输入消息，Enter 发送，Shift+Enter 换行…'
           }
           onSend={(text) => void sendMessage(text)}
         />
