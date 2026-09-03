@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as Rea
 import { useChatStore } from '../../store/chat';
 import { useUiStore } from '../../store/ui';
 import Marquee from '../Marquee';
+import AiAssistantIcon from '../AiAssistantIcon';
 
 interface DraggableChatProps {
   placeholder?: string;
@@ -120,7 +121,7 @@ function clearPos(): void {
  * - 改为「浮窗」后，浮窗通过 fixed 定位脱离文档流，右窗底部空间完全让给 Tab 内容。
  *
  * 交互：
- * - 顶部「⋮⋮ 🤖 AI 助理」标题栏可拖动；位置持久化到 localStorage。
+ * - 顶部「⋮⋮ [图标] AI 助理」标题栏可拖动；位置持久化到 localStorage。
  * - 右上角「−」按钮：浮窗最小化为右下角圆形图标（点回弹）。
  * - 圆形图标点击：恢复浮窗到上次位置。
  * - 拖动期间限制在视口内，避免被拖到看不见的地方。
@@ -358,9 +359,10 @@ export default function DraggableChat({
         tabIndex={0}
         title="展开 AI 助理（也可拖动调整位置）"
         aria-label="展开 AI 助理"
-        className="fixed flex h-12 w-12 cursor-move select-none items-center justify-center rounded-full bg-brand text-xl text-white shadow-lg transition-transform hover:scale-110"
+        className="fixed flex h-12 w-12 cursor-move select-none items-center justify-center rounded-full bg-brand text-white shadow-lg transition-transform hover:scale-110"
       >
-        🤖
+        {/* 最小化圆按钮：用 AiAssistantIcon 替代 🤖 emoji，28px 嵌入圆形按钮。 */}
+        <AiAssistantIcon size={28} withSparkle />
       </div>
     );
   }
@@ -374,7 +376,9 @@ export default function DraggableChat({
   return (
     <div
       ref={containerRef}
-      className="fixed flex flex-col overflow-hidden rounded-xl border-2 border-black bg-white shadow-2xl"
+      // 主容器：#0E2A47（中深蓝）背景 + #1c4a7c 中等深蓝边框，与标题栏 #0a2238（最深）形成层级。
+      // 阴影保留以维持"浮窗漂浮"感；外边框由 black → #1c4a7c 适配深色主题。
+      className="fixed flex flex-col overflow-hidden rounded-xl border border-[#1c4a7c] bg-[#0E2A47] text-white shadow-2xl"
       style={style}
       data-testid="fc-draggable-chat"
     >
@@ -389,19 +393,23 @@ export default function DraggableChat({
         aria-label="AI 助理浮窗标题（可拖动，方向键移动，Home 复位）"
         aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home Shift"
         onKeyDown={onHeaderKeyDown}
-        className="group flex shrink-0 cursor-move items-center justify-between border-b border-slate-200 bg-slate-50 px-2.5 py-1.5 select-none transition-colors hover:bg-slate-100 active:bg-slate-200 active:shadow-inner focus:outline-none focus:ring-2 focus:ring-brand/40"
+        // 标题栏：#0a2238 最深蓝，hover 升到 #14365c（中深蓝）形成"按压感"反馈。
+        // focus 描边 #1c4a7c，与主容器边框同色，避免 brand 蓝在深色主题下对比度过弱。
+        className="group flex shrink-0 cursor-move items-center justify-between border-b border-[#1c4a7c] bg-[#0a2238] px-2.5 py-1.5 select-none transition-colors hover:bg-[#14365c] active:bg-[#14365c] active:shadow-inner focus:outline-none focus:ring-2 focus:ring-[#1c4a7c]"
         data-testid="fc-draggable-chat-header"
         title="按住拖动浮窗，或聚焦后用方向键移动、Home 复位"
       >
-        <span className="flex items-center gap-1.5 text-xs font-medium text-slate-700">
-          {/* v3.2.1 P3-3：拖动手柄 ⋮⋮ 在 group-hover 时变深，鼠标移上去给反馈 */}
+        <span className="flex items-center gap-1.5 text-xs font-medium text-white">
+          {/* 拖动手柄：默认浅色，hover/active 变白，强化"这里可拖"的视觉提示 */}
           <span
             aria-hidden
-            className="font-bold text-slate-300 transition-colors group-hover:text-slate-500 group-active:text-brand"
+            className="font-bold text-slate-400 transition-colors group-hover:text-white group-active:text-white"
           >
             ⋮⋮
           </span>
-          🤖 AI 助理
+          {/* 标题栏内联 AI 助理图标：bare=true 不带方框背景，14px 与文字同行。withSparkle=false 避免小尺寸下闪光糊掉。 */}
+          <AiAssistantIcon size={14} bare withSparkle={false} className="shrink-0" />
+          AI 助理
         </span>
         <div className="flex items-center gap-0.5">
           {/* v0.1.02 P2-8：重置位置按钮 — 浮窗被拖到屏幕外时一键回到默认右下角。
@@ -416,7 +424,7 @@ export default function DraggableChat({
             title="将浮窗移回默认右下角"
             aria-label="将浮窗移回默认右下角"
             data-testid="fc-draggable-chat-reset"
-            className="flex h-6 w-6 items-center justify-center rounded text-base leading-none text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
+            className="flex h-6 w-6 items-center justify-center rounded text-base leading-none text-slate-300 transition-colors hover:bg-[#14365c] hover:text-white"
           >
             ↺
           </button>
@@ -430,33 +438,32 @@ export default function DraggableChat({
             title="最小化为圆形图标"
             aria-label="最小化"
             data-testid="fc-draggable-chat-minimize"
-            className="flex h-6 w-6 items-center justify-center rounded text-base leading-none text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
+            className="flex h-6 w-6 items-center justify-center rounded text-base leading-none text-slate-300 transition-colors hover:bg-[#14365c] hover:text-white"
           >
             −
           </button>
         </div>
       </div>
 
-      {/* 消息流 */}
+      {/* 消息流：与主容器同色 #0E2A47，让消息气泡 #14365c 自然浮起。 */}
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 space-y-1.5 overflow-y-auto bg-slate-50 p-2 text-xs"
+        className="min-h-0 flex-1 space-y-1.5 overflow-y-auto bg-[#0E2A47] p-2 text-xs"
         data-testid="fc-draggable-chat-messages"
       >
         {recent.length === 0 && (
-          <p className="py-2 text-center text-slate-400">还没有对话，说点什么吧</p>
+          /* 空态：浅灰文字在 #0E2A47 上仍有可读对比 */
+          <p className="py-2 text-center text-slate-300">还没有对话，说点什么吧</p>
         )}
         {recent.map((m) => (
           <div
             key={m.id}
             className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
+            {/* 规范：用户/AI 统一 #14365c（中深蓝）+ 白字，避免气泡在深色背景下刺眼。
+                仅保留左右对齐区分身份，不靠颜色区分。 */}
             <div
-              className={`max-w-[88%] whitespace-pre-wrap rounded-lg px-2 py-1 leading-relaxed ${
-                m.role === 'user'
-                  ? 'bg-brand text-white'
-                  : 'border border-slate-200 bg-white text-slate-700'
-              }`}
+              className="max-w-[88%] whitespace-pre-wrap rounded-lg bg-[#14365c] px-2 py-1 leading-relaxed text-white"
             >
               {m.content}
             </div>
@@ -473,12 +480,13 @@ export default function DraggableChat({
           />
         )}
         {isProcessing && !marqueeOnProcessing && (
-          <div className="py-1 text-center text-slate-400">AI 正在处理…</div>
+          /* 处理中提示：浅灰文字，深色背景下对比度足够 */
+          <div className="py-1 text-center text-slate-300">AI 正在处理…</div>
         )}
       </div>
 
-      {/* 输入框 */}
-      <div className="shrink-0 border-t border-slate-200 bg-white p-2">
+      {/* 输入框：输入区容器与标题栏同色 #0a2238（最深），形成"上下边框包围"的层级感 */}
+      <div className="shrink-0 border-t border-[#1c4a7c] bg-[#0a2238] p-2">
         <div className="flex gap-2">
           <input
             ref={inputRef}
@@ -496,8 +504,10 @@ export default function DraggableChat({
             placeholder={placeholder}
             title="Enter 发送"
             data-testid="fc-draggable-chat-input"
-            className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-brand"
+            // 输入框：#14365c 背景 + 白字 + #1c4a7c 边框，与气泡同色形成"对话-输入"视觉连贯
+            className="min-w-0 flex-1 rounded-lg border border-[#1c4a7c] bg-[#14365c] px-2.5 py-1.5 text-sm text-white placeholder:text-slate-300 outline-none focus:border-[#1c4a7c] focus:ring-2 focus:ring-[#1c4a7c]"
           />
+          {/* 发送按钮保留 bg-brand（视觉锚点）：避免深色主题下操作入口被吞没。 */}
           <button
             type="button"
             disabled={!input.trim() || isProcessing}
