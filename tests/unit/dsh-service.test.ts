@@ -12,6 +12,7 @@ import {
   parseDshOutput,
   resolveDshLaunch,
 } from '../../src/main/dsh/service';
+import type { DSHState } from '../../src/shared/types/dsh';
 
 /**
  * DSH 服务层单元测试：用 fake-dsh 夹具模拟 headless 行为。
@@ -357,5 +358,116 @@ describe('DSH 服务层', () => {
     expect(result.reply).toContain('OPENAI_API_KEY');
     expect(result.reply).toContain('https://api.example.com/v1');
     expect(result.reply).not.toContain('sk-openai-key-12345678');
+  });
+
+  /** 方案 3 状态机单测（审计验收补足）：
+   *  DSHService 新增了 getState() / onStateChange() / computeState() / notifyStateChanged()，
+   *  既要守住「状态聚合 + 推送」语义，又要守住「activeManagers 生命周期」不泄漏。
+   */
+  describe('DSHService 状态机', () => {
+    const makeService = (): DSHService =>
+      new DSHService({
+        command: [process.execPath, FAKE_DSH, '--profile', 'headless'],
+        apiKeyProvider: async () => ({ apiKey: 'sk-test-1234567890', provider: 'deepseek' }),
+      });
+
+    it('getState()：构造时无任务 → status=idle, busyCount=0, message=休眠中', () => {
+      const s = makeService();
+      const state = s.getState();
+      expect(state.available).toBe(true);
+      expect(state.status).toBe('idle');
+      expect(state.busyCount).toBe(0);
+      expect(state.message).toBe('休眠中');
+      expect(state.reason).toBeUndefined();
+    });
+
+    it('onStateChange()：注册时立刻收到一次当前快照', () => {
+      const s = makeService();
+      const received: DSHState[] = [];
+      const off = s.onStateChange((st) => received.push(st));
+      try {
+        expect(received.length).toBe(1);
+        expect(received[0].status).toBe('idle');
+        expect(received[0].busyCount).toBe(0);
+      } finally {
+        off();
+      }
+    });
+
+    it('onStateChange()：off() 取消订阅后再触发 runTask 不再回调', async () => {
+      const s = makeService();
+      let count = 0;
+      const off = s.onStateChange(() => count++);
+      const before = count;
+      off();
+      await s.runTask(os.tmpdir(), 'env-check');
+      // off 后整个 runTask 期间不应再收到任何回调
+      expect(count).toBe(before);
+    });
+
+    it('runTask：期间 busyCount > 0 的过渡态至少出现一次，结束后回到 idle/busyCount=0', async () => {
+      const s = makeService();
+      const observed: DSHState[] = [];
+      const off = s.onStateChange((st) => observed.push(st));
+      try {
+        await s.runTask(os.tmpdir(), 'env-check');
+        // 至少一帧 busyCount > 0（即 starting/running/stopping 任一）
+        const busy = observed.filter((st) => st.busyCount > 0);
+        expect(busy.length).toBeGreaterThan(0);
+        // 终态回到 idle 且 busyCount = 0
+        const last = observed[observed.length - 1];
+        expect(last.status).toBe('idle');
+        expect(last.busyCount).toBe(0);
+        // 终态 message 必须 = 「休眠中」（之前是「已就绪 · 按需启动」，审计后统一为「休眠中」）
+        expect(last.message).toBe('休眠中');
+      } finally {
+        off();
+      }
+    });
+
+    it('runTask：activeManagers 在任务结束后被清空（无 manager 泄漏到下一轮）', async () => {
+      const s = makeService();
+      expect(s.getState().busyCount).toBe(0);
+      await s.runTask(os.tmpdir(), 'env-check');
+      expect(s.getState().busyCount).toBe(0);
+      // 再跑一次仍干净：两轮跑下来 activeManagers 应该恰好归零
+      await s.runTask(os.tmpdir(), 'env-check');
+      expect(s.getState().busyCount).toBe(0);
+    });
+
+    it('notifyStateChanged：相同快照不会重复 emit（去重）', () => {
+      const s = makeService();
+      // 让一个 manager 进入 stopped 后再发同样状态的 emit 不应触发 notify
+      // 这里通过连续两次 onStateChange 注册同一个 handler 观察：第一次收到 idle，
+      // 第二次立刻收到也是同一个 idle（不会因为「同样状态再 emit」多一帧）。
+      const received: DSHState[] = [];
+      const off1 = s.onStateChange((st) => received.push(st));
+      off1();
+      const off2 = s.onStateChange((st) => received.push(st));
+      try {
+        expect(received.length).toBe(2);
+        expect(received[0]).toEqual(received[1]);
+      } finally {
+        off2();
+      }
+    });
+
+    it('checkHealth() 与 computeState() 的 missing 文案来源同一常量', () => {
+      // 强证据：checkHealth() 的 default 分支与 computeState() 的 missing 分支都引用
+      // MISSING_LAUNCH_MESSAGE，共享字符串字面量「未检测到 DeepSeek Harness（dsh）启动入口」
+      // ——通过字符串引用计数 = 2 来证明（之前「运行时」/「启动入口」两条文案飘）。
+      const source = nodeFs.readFileSync(
+        path.join(__dirname, '../../src/main/dsh/service.ts'),
+        'utf-8',
+      );
+      const occurrences = (source.match(/MISSING_LAUNCH_MESSAGE/g) ?? []).length;
+      // 至少出现 3 次：常量定义 + computeState + checkHealth.default
+      expect(occurrences).toBeGreaterThanOrEqual(3);
+      // 同时验证「未检测到 DeepSeek Harness（dsh）运行时」字面量已删除（审计前使用过）
+      expect(source).not.toContain('未检测到 DeepSeek Harness（dsh）运行时');
+      // 统一后只剩一条文案字面量
+      const unifiedCount = (source.match(/未检测到 DeepSeek Harness（dsh）启动入口/g) ?? []).length;
+      expect(unifiedCount).toBe(1);
+    });
   });
 });

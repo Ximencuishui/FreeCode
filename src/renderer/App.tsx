@@ -14,11 +14,13 @@ import ApiKeyModal from './components/ApiKeyModal';
 import Logo from './components/Logo';
 import AiAssistantIcon from './components/AiAssistantIcon';
 import StepFlow from './components/StepFlow';
+import { DshStatusBadge } from './components/DshStatusBadge';
 import { useChatStore, type ResumeGuide, type ResumeAction } from './store/chat';
 import { useProjectStore } from './store/project';
 import { useUiStore } from './store/ui';
 import { useExportStore, handleExportComplete } from './store/export';
 import { useChatEvents } from './hooks/useChatEvents';
+import { useDshState } from './hooks/useDshState';
 import type { AppInfo } from '@shared/types/app';
 import type { AppSettings, SettingsGetResult } from '@shared/types/settings';
 import type {
@@ -69,6 +71,8 @@ const readStoredWidth = (): number => {
 export default function App() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  /** 方案 3：实时订阅 dsh 状态机（idle 休眠 / running / missing 等），供状态栏渲染 */
+  const dshState = useDshState();
   /** 需求审查发现矛盾后为 true：卡片显示"跳过审查"逃生口 */
   const [reviewPending, setReviewPending] = useState(false);
   /** 文档主工作区当前选中的项目相对路径 */
@@ -1118,17 +1122,14 @@ ${steps}
             : apiKeyConfigured === false
               ? '● 尚未配置大模型 API，点击右上角配置'
               : '● 正在加载设置…'}
-          {/* v0.1.02 P2-5：DSH 不可用时把主进程给的真实 hint 渲染出来。
-              之前只判断 appInfo.dshAvailable === false，但 dshHint 是字符串，
-              如果后端没传过来就 fallback 到默认文案，避免空标签。 */}
-          {appInfo?.dshAvailable === false && (
-            <span
-              className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-amber-600"
-              title={appInfo.dshHint ?? undefined}
-            >
-              ⚠ {appInfo.dshHint?.trim() || '未检测到 DSH 运行时'}
-            </span>
-          )}
+          {/* 方案 3：dsh 实时状态徽章（来自 useDshState hook）。
+                - loading（INITIAL）灰色脉冲"dsh 状态加载中…"——IPC 往返期间的骨架态
+                - idle（常态）     灰色静态"💤 休眠中"——启动入口齐了 + 当前无任务
+                - starting/running/stopping 蓝色脉冲"dsh 任务进行中"等
+                - error           黄色"⚠ {message}"
+                - missing         黄色"⚠ {reason}"（启动入口缺失）
+              渲染规则详见 DshStatusBadge。 */}
+          <DshStatusBadge state={dshState} />
         </span>
         {/* v0.1.02 P2-5：原来"项目保存在本地 · 数据不上传"易让用户困惑「本地」指什么。
             实际项目文件存在 ~/.freecoder/Project/<id>/ 下（用户机器上的固定目录），

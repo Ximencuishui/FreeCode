@@ -64,6 +64,9 @@ export const IpcChannels = {
   appQuit: 'app:quit',
   appOpenExternal: 'app:open-external',
   appRevealInFolder: 'app:reveal-in-folder',
+  // dsh 运行时状态（方案 3：按需启动 vs 缺失/异常的实时区分）
+  dshState: 'dsh:state',
+  dshStateChange: 'dsh:state-change',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

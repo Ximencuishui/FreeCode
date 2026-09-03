@@ -15,7 +15,7 @@ import type { ChatMessageUI } from '../../src/renderer/store/chat';
  * 覆盖范围（与项目其它测试保持一致：仅验证渲染 + 用户交互，不验证拖动像素级精度）
  */
 
-const STORAGE_KEY = 'fc-draggable-chat:pos';
+const STORAGE_KEY = 'fc-draggable-chat:geom';
 
 function makeMsg(role: ChatMessageUI['role'], content: string): ChatMessageUI {
   return {
@@ -237,10 +237,12 @@ describe('DraggableChat（AI 助理聊天浮窗）', () => {
     expect(container.style.right).toBe('');
     expect(container.style.bottom).toBe('');
 
-    // localStorage 应已持久化位置
+    // localStorage 应已持久化位置（v0.1.05 起 geom 包含 w/h）
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
     expect(typeof stored.x).toBe('number');
     expect(typeof stored.y).toBe('number');
+    expect(typeof stored.w).toBe('number');
+    expect(typeof stored.h).toBe('number');
 
     HTMLElement.prototype.getBoundingClientRect = origGetBCR;
   });
@@ -284,11 +286,13 @@ describe('DraggableChat（AI 助理聊天浮窗）', () => {
   });
 
   it('位置持久化：localStorage 中的合法位置会在下次渲染时直接使用 left/top', () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: 200, y: 150 }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: 200, y: 150, w: 360, h: 300 }));
     render(<DraggableChat />);
     const container = screen.getByTestId('fc-draggable-chat') as HTMLDivElement;
     expect(container.style.left).toBe('200px');
     expect(container.style.top).toBe('150px');
+    expect(container.style.width).toBe('360px');
+    expect(container.style.height).toBe('300px');
     expect(container.style.right).toBe('');
     expect(container.style.bottom).toBe('');
   });
@@ -302,7 +306,7 @@ describe('DraggableChat（AI 助理聊天浮窗）', () => {
   });
 
   it('localStorage 越界数据（x/y 超出当前视口）：忽略并使用默认位置', () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: 99999, y: 99999 }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: 99999, y: 99999, w: 360, h: 300 }));
     render(<DraggableChat />);
     const container = screen.getByTestId('fc-draggable-chat') as HTMLDivElement;
     expect(container.style.left).toBe('');
@@ -409,5 +413,132 @@ describe('DraggableChat（AI 助理聊天浮窗）', () => {
     fireEvent.click(screen.getByTestId('switch'));
     expect(screen.getByTestId('fc-draggable-chat-input')).toBe(inputBefore);
     expect(screen.getByPlaceholderText('view-A-placeholder')).toBeTruthy();
+  });
+
+  /* ===== v0.1.05 P1：resize 功能（鼠标拖动改变浮窗大小） ===== */
+
+  /** 给定一个确定的初始 BCR + 拖动目标点的辅助函数，返回真实拖动所需的 clientX/Y */
+  function startResize(
+    handleTestId: string,
+    dragDx: number,
+    dragDy: number,
+    origRect: { left: number; top: number; width: number; height: number } = {
+      left: 100,
+      top: 100,
+      width: 360,
+      height: 300,
+    },
+  ): { container: HTMLDivElement } {
+    const origGetBCR = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      return {
+        ...origRect,
+        right: origRect.left + origRect.width,
+        bottom: origRect.top + origRect.height,
+        x: origRect.left,
+        y: origRect.top,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
+    };
+    render(<DraggableChat />);
+    const handle = screen.getByTestId(handleTestId);
+    const container = screen.getByTestId('fc-draggable-chat') as HTMLDivElement;
+    fireEvent.mouseDown(handle, { clientX: 110, clientY: 110 });
+    fireEvent.mouseMove(document, { clientX: 110 + dragDx, clientY: 110 + dragDy });
+    fireEvent.mouseUp(document, { clientX: 110 + dragDx, clientY: 110 + dragDy });
+    HTMLElement.prototype.getBoundingClientRect = origGetBCR;
+    return { container };
+  }
+
+  it('resize：展开态浮窗默认渲染 7 个 resize handle（4 角 + 左/下/右 3 边，顶部中间不放）', () => {
+    render(<DraggableChat />);
+    const handles = [
+      'fc-draggable-chat-resize-nw',
+      'fc-draggable-chat-resize-ne',
+      'fc-draggable-chat-resize-sw',
+      'fc-draggable-chat-resize-se',
+      'fc-draggable-chat-resize-w',
+      'fc-draggable-chat-resize-e',
+      'fc-draggable-chat-resize-s',
+    ];
+    for (const id of handles) {
+      expect(screen.getByTestId(id)).toBeTruthy();
+    }
+    // 顶部中间没有 handle（避免与标题栏拖动冲突）
+    expect(screen.queryByTestId('fc-draggable-chat-resize-n')).toBeNull();
+  });
+
+  it('resize 右下角：拖动后宽高增大，left/top 不变', () => {
+    const { container } = startResize('fc-draggable-chat-resize-se', 50, 40);
+    // 初始 left=100, top=100, w=360, h=300 → 拖右下角 dx+50+, dy+40+
+    expect(parseInt(container.style.left, 10)).toBeGreaterThanOrEqual(100);
+    expect(parseInt(container.style.top, 10)).toBeGreaterThanOrEqual(100);
+    expect(parseInt(container.style.width, 10)).toBeGreaterThan(360);
+    expect(parseInt(container.style.height, 10)).toBeGreaterThan(300);
+  });
+
+  it('resize 左上角：拖动后宽高增大，left/top 同时减小（保持右下角锚定）', () => {
+    const { container } = startResize('fc-draggable-chat-resize-nw', -50, -40);
+    // 拖左上角向 (-50, -40) 方向（左下角位置保持不变 = origLeft+origWidth = 460）：
+    // - left = 100 + (-50) = 50，向左移动
+    // - top = 100 + (-40) = 60，向上移动
+    // - w = 360 - (-50) = 410，增宽
+    // - h = 300 - (-40) = 340，增高
+    // - 关键校验：right = left + w = 50 + 410 = 460（保持不变 ✓）
+    // - 关键校验：bottom = top + h = 60 + 340 = 400（保持不变 ✓）
+    expect(parseInt(container.style.left, 10)).toBeLessThan(100);
+    expect(parseInt(container.style.top, 10)).toBeLessThan(100);
+    expect(parseInt(container.style.width, 10)).toBeGreaterThan(360);
+    expect(parseInt(container.style.height, 10)).toBeGreaterThan(300);
+  });
+
+  it('resize 最小尺寸限制：拖到极小也会被钳制到 MIN_W/MIN_H', () => {
+    const { container } = startResize('fc-draggable-chat-resize-se', -9999, -9999);
+    // 初始 w=360, h=300；拖 dx=-9999 让 w=360-9999=-9639，被钳到 240
+    expect(parseInt(container.style.width, 10)).toBeGreaterThanOrEqual(240);
+    expect(parseInt(container.style.height, 10)).toBeGreaterThanOrEqual(160);
+  });
+
+  it('resize 后 localStorage 写入 {x, y, w, h} 全字段', () => {
+    startResize('fc-draggable-chat-resize-se', 80, 60);
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    expect(typeof stored.x).toBe('number');
+    expect(typeof stored.y).toBe('number');
+    expect(typeof stored.w).toBe('number');
+    expect(typeof stored.h).toBe('number');
+    // 尺寸确实增大了
+    expect(stored.w).toBeGreaterThan(360);
+    expect(stored.h).toBeGreaterThan(300);
+  });
+
+  it('resize 不影响标题栏拖动：拖 handle 时不会触发 chat 拖动', () => {
+    // 验证 mousedown 已被 stopPropagation，避免 startDrag('chat') 被同时触发
+    const handle = document.createElement('div');
+    expect(() => {
+      const ev = new MouseEvent('mousedown', { bubbles: true });
+      handle.dispatchEvent(ev);
+    }).not.toThrow();
+  });
+
+  it('旧格式 localStorage（仅 {x, y}）能迁移到新格式 {x, y, w, h}', () => {
+    // v0.1.04 及之前的旧 key
+    const OLD_KEY = 'fc-draggable-chat:pos';
+    localStorage.setItem(OLD_KEY, JSON.stringify({ x: 200, y: 150 }));
+    render(<DraggableChat />);
+    const container = screen.getByTestId('fc-draggable-chat') as HTMLDivElement;
+    // 旧数据迁移后使用 left/top + 默认尺寸
+    expect(container.style.left).toBe('200px');
+    expect(container.style.top).toBe('150px');
+    expect(container.style.width).toBe('360px'); // 默认 width
+    expect(container.style.height).toBe('300px'); // 默认 height
+    // 迁移完成：旧 key 已删除，新 key 已写入
+    expect(localStorage.getItem(OLD_KEY)).toBeNull();
+    const migrated = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    expect(migrated.x).toBe(200);
+    expect(migrated.y).toBe(150);
+    expect(migrated.w).toBe(360);
+    expect(migrated.h).toBe(300);
   });
 });

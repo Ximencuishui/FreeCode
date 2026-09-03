@@ -7,6 +7,7 @@ import { registerPackageIpc } from './package';
 import { registerSettingsIpc } from './settings';
 import { registerApiKeyIpc } from './apikey';
 import { registerDbIpc } from './db';
+import { registerDshIpc } from './dsh';
 import type { StorageManager } from '../storage/types';
 import type { DSHService } from '../dsh/service';
 import type { Developer } from '../dev/developer';
@@ -19,7 +20,7 @@ export function registerIpcHandlers(
   developer: Developer,
   planner: VersionPlanner,
 ): void {
-  registerAppIpc(dsh);
+  registerAppIpc();
   registerChatIpc(storage, dsh);
   registerProjectIpc(storage, dsh, developer, planner);
   registerPreviewIpc(storage);
@@ -28,4 +29,6 @@ export function registerIpcHandlers(
   registerSettingsIpc(storage);
   registerApiKeyIpc(storage);
   registerDbIpc();
+  // 方案 3：注册 dsh 状态域 IPC（dsh:state 拉一次，dsh:state-change 推流）
+  registerDshIpc(dsh);
 }

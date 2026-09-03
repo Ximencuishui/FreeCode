@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import { IpcChannels } from '../shared/types/ipc';
+import type { DSHState } from '../shared/types/dsh';
 
 /** 订阅主进程事件推送，返回取消订阅函数 */
 function subscribe<T>(channel: string, callback: (data: T) => void): () => void {
@@ -82,6 +83,14 @@ const electronApi: Window['electron'] = {
     quit: () => ipcRenderer.send(IpcChannels.appQuit),
     openExternal: (url) => ipcRenderer.invoke(IpcChannels.appOpenExternal, { url }),
     revealInFolder: (path) => ipcRenderer.invoke(IpcChannels.appRevealInFolder, { path }),
+  },
+  /** 方案 3：dsh 运行时状态（idle 休眠 / running / missing 等）。状态栏据此显示 */
+  dsh: {
+    /** 同步拉一次 dsh 状态快照（mount 时用一次） */
+    state: (): Promise<DSHState> => ipcRenderer.invoke(IpcChannels.dshState),
+    /** 订阅主进程推送：每次状态变化都回调（cancel-safe，回到独立推流，不再有双订阅握手） */
+    onStateChange: (callback: (state: DSHState) => void): (() => void) =>
+      subscribe<DSHState>(IpcChannels.dshStateChange, callback),
   },
 };
 

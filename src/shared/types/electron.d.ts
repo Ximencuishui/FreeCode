@@ -69,6 +69,7 @@ import type {
   ApiKeyValidateResult,
 } from './settings';
 import type { AppInfo } from './app';
+import type { DSHState } from './dsh';
 
 type Unsubscribe = () => void;
 
@@ -167,6 +168,13 @@ declare global {
         openExternal: (url: string) => Promise<{ success: boolean }>;
         /** 在系统文件管理器中高亮显示本地文件（用于打开导出/打包产物） */
         revealInFolder: (path: string) => Promise<{ success: boolean }>;
+      };
+      /** 方案 3：dsh 运行时实时状态（按需启动 vs 缺失/异常的实时区分） */
+      dsh: {
+        /** 拉一次状态快照 */
+        state: () => Promise<DSHState>;
+        /** 订阅状态变化推送（每次 DSHService 聚合状态切换都触发） */
+        onStateChange: (callback: (data: DSHState) => void) => Unsubscribe;
       };
     };
   }

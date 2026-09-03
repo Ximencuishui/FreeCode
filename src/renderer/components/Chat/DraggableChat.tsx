@@ -10,8 +10,9 @@ interface DraggableChatProps {
   marqueeOnProcessing?: boolean;
   /** 跑马灯文案（默认「正在处理中」） */
   marqueeText?: string;
-  /** 浮窗展开态尺寸（像素） */
+  /** 浮窗默认初始宽度（用户拉伸后会被 localStorage 覆盖） */
   width?: number;
+  /** 浮窗默认初始高度（用户拉伸后会被 localStorage 覆盖） */
   height?: number;
   /** 受控模式：外部强制展开（如自动测试进行中） */
   forceExpand?: boolean;
@@ -24,28 +25,53 @@ interface DraggableChatProps {
   hidden?: boolean;
 }
 
+/** 持久化的浮窗几何信息（位置 + 尺寸）。v0.1.05 P1 加入，替代旧的 {x,y}。 */
+interface StoredGeom {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** 仅位置（用于最小化图标，不带尺寸——图标固定 48×48）。 */
 interface StoredPos {
   x: number;
   y: number;
 }
 
-const STORAGE_KEY = 'fc-draggable-chat:pos';
+/** Resize 方向：4 角 + 上/下/左/右 3 边，共 7 个 handle。 */
+type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+/** localStorage 存储键
+ * - GEOM：展开态浮窗的位置 + 尺寸（v0.1.05 起）
+ * - POS_OLD：v0.1.04 及之前的旧格式，迁移一次后清理
+ * - MIN：最小化图标位置（独立于展开态） */
+const STORAGE_KEY_GEOM = 'fc-draggable-chat:geom';
+const STORAGE_KEY_POS_OLD = 'fc-draggable-chat:pos';
 const STORAGE_KEY_MIN = 'fc-draggable-chat:min-pos';
 
-/** 把持久化的位置夹到当前视口内。
+/** 浮窗最小尺寸限制（resize 时兜底）。
+ * - 240 容纳输入框 + 发送按钮 + padding
+ * - 160 容纳标题栏 + 至少 2 行消息 */
+const MIN_W = 240;
+const MIN_H = 160;
+/** Resize handle 热区宽度（视觉无痕，鼠标移到边缘 ~8px 范围内触发 resize） */
+const RESIZE_HANDLE = 8;
+
+/** 把持久化的位置夹到当前视口内（仅位置，固定尺寸——给最小化图标用）。
  * v0.1.02 P2-8：原来只校验 pos.x < window.innerWidth && pos.y < window.innerHeight，
  * 浮窗整体可能在视口外（4K 屏右下角拖到 1080p 屏后浮窗跑出可见区）。
  * 改进策略：
  *   1) 校验坐标必须是有限正数
  *   2) 视口尺寸过小（width<200 || height<120）放弃持久化位置，让浮窗回默认位置
- *   3) 极度越界（如 x ≥ 2 倍视口宽）：丢弃（保留旧测试 "localStorage 越界 → 用默认位置" 行为）
+ *   3) 极度越界（如 x ≥ 2 倍视口宽）：丢弃（保留旧测试 "out-of-viewport → 默认位置" 行为）
  *   4) 轻微越界（如多显示器切换 / 缩放窗口后）：夹到视口内，让浮窗仍可见
  */
 function clampPos(pos: StoredPos, winWidth: number, winHeight: number, floatW: number, floatH: number): StoredPos | null {
   if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return null;
   if (pos.x < 0 || pos.y < 0) return null;
   if (winWidth < 200 || winHeight < 120) return null;
-  // 极度越界：视为非法位置，丢弃（与原 "out-of-viewport → 默认位置" 行为一致）
+  // 极度越界：视为非法位置，丢弃
   if (pos.x >= winWidth * 2 || pos.y >= winHeight * 2) return null;
   // 至少留 60×40 可见区提示用户浮窗在那
   const visibleW = 60;
@@ -60,12 +86,81 @@ function clampPos(pos: StoredPos, winWidth: number, winHeight: number, floatW: n
   };
 }
 
-function readPos(): StoredPos | null {
+/** 把持久化的几何信息夹到当前视口 + 最小尺寸限制内。
+ * v0.1.05 P1：扩展自原 clampPos，加入 w/h 维度的合法性校验。
+ *   1) x/y 必须是有限正数（保留旧校验）
+ *   2) w/h 必须是有限正数，且 ≥ MIN_W/MIN_H
+ *   3) 视口过小（width<200 || height<120）放弃持久化
+ *   4) 极度越界（≥ 2 倍视口）：丢弃
+ *   5) 轻微越界：夹到视口内，并保证至少 60×40 可见区
+ *   6) resize 后整体（x+w, y+h）超出视口：向内夹，让浮窗仍在屏幕内
+ *   7) 调整左上/右上角后导致 x<0 或 y<0：夹到 0 */
+function clampGeom(geom: StoredGeom, winWidth: number, winHeight: number): StoredGeom | null {
+  const { x, y, w, h } = geom;
+  if (![x, y, w, h].every(Number.isFinite)) return null;
+  if (x < 0 || y < 0 || w < MIN_W || h < MIN_H) return null;
+  if (winWidth < 200 || winHeight < 120) return null;
+  // 极度越界：丢弃
+  if (x >= winWidth * 2 || y >= winHeight * 2) return null;
+  // 至少 60×40 可见
+  const visibleW = 60;
+  const visibleH = 40;
+  const minX = -(w - visibleW);
+  const minY = -(h - visibleH);
+  const maxX = Math.max(0, winWidth - visibleW);
+  const maxY = Math.max(0, winHeight - visibleH);
+  const cx = Math.max(minX, Math.min(x, maxX));
+  const cy = Math.max(minY, Math.min(y, maxY));
+  // resize 后整体超出视口：把右边/下边贴到视口边
+  const cw = Math.min(w, Math.max(MIN_W, winWidth - cx));
+  const ch = Math.min(h, Math.max(MIN_H, winHeight - cy));
+  return { x: cx, y: cy, w: cw, h: ch };
+}
+
+/** 从 localStorage 读取持久化的几何信息。
+ * v0.1.05 P1：兼容旧 {x,y} 格式——补默认值后迁移到新 key 并删旧 key。
+ * 返回 null 时表示用默认右下角位置 + 默认尺寸渲染。 */
+function readGeom(defaultW: number, defaultH: number): StoredGeom | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const v = JSON.parse(raw) as StoredPos;
-    return clampPos(v, window.innerWidth, window.innerHeight, 360, 300);
+    // 优先读新格式
+    const rawGeom = localStorage.getItem(STORAGE_KEY_GEOM);
+    if (rawGeom) {
+      const v = JSON.parse(rawGeom) as Partial<StoredGeom>;
+      if (
+        typeof v.x === 'number' &&
+        typeof v.y === 'number' &&
+        typeof v.w === 'number' &&
+        typeof v.h === 'number'
+      ) {
+        const clamped = clampGeom(
+          { x: v.x, y: v.y, w: v.w, h: v.h },
+          window.innerWidth,
+          window.innerHeight,
+        );
+        if (clamped) return clamped;
+      }
+    }
+    // 兼容旧格式：旧 key 只有 {x,y}，尺寸用默认
+    const rawOld = localStorage.getItem(STORAGE_KEY_POS_OLD);
+    if (rawOld) {
+      const v = JSON.parse(rawOld) as Partial<StoredPos>;
+      if (typeof v.x === 'number' && typeof v.y === 'number') {
+        const migrated: StoredGeom = { x: v.x, y: v.y, w: defaultW, h: defaultH };
+        const clamped = clampGeom(migrated, window.innerWidth, window.innerHeight);
+        // 迁移：写到新 key + 删除旧 key（一次完成）
+        if (clamped) {
+          try {
+            localStorage.setItem(STORAGE_KEY_GEOM, JSON.stringify(clamped));
+            localStorage.removeItem(STORAGE_KEY_POS_OLD);
+          } catch {
+            /* 忽略 */
+          }
+          return clamped;
+        }
+        // 旧数据 clamp 后无效，清理掉避免下次再尝试
+        localStorage.removeItem(STORAGE_KEY_POS_OLD);
+      }
+    }
   } catch {
     /* 解析失败：忽略 */
   }
@@ -86,9 +181,9 @@ function readMinPos(): StoredPos | null {
   return null;
 }
 
-function writePos(pos: StoredPos): void {
+function writeGeom(geom: StoredGeom): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(pos));
+    localStorage.setItem(STORAGE_KEY_GEOM, JSON.stringify(geom));
   } catch {
     /* 写入失败：忽略（隐私模式等） */
   }
@@ -102,10 +197,11 @@ function writeMinPos(pos: StoredPos): void {
   }
 }
 
-/** 清空持久化的浮窗位置（重置到默认右下角） */
-function clearPos(): void {
+/** 清空持久化的浮窗几何信息（重置到默认右下角 + 默认尺寸） */
+function clearGeom(): void {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_KEY_GEOM);
+    localStorage.removeItem(STORAGE_KEY_POS_OLD);
     localStorage.removeItem(STORAGE_KEY_MIN);
   } catch {
     /* 忽略 */
@@ -145,7 +241,7 @@ export default function DraggableChat({
   const setInput = useUiStore((s) => s.setChatDraft);
   const clearDraft = useUiStore((s) => s.clearChatDraft);
 
-  const [pos, setPos] = useState<StoredPos | null>(() => readPos());
+  const [geom, setGeom] = useState<StoredGeom | null>(() => readGeom(width, height));
   const [minimized, setMinimized] = useState(false);
   /** 最小化图标位置（独立于展开态）。null 表示使用默认 bottom-right。 */
   const [minPos, setMinPos] = useState<StoredPos | null>(() => readMinPos());
@@ -155,8 +251,15 @@ export default function DraggableChat({
     startY: number;
     origX: number;
     origY: number;
-    /** 当前拖的是哪个对象（'chat' = 展开态浮窗, 'icon' = 最小化图标） */
-    target: 'chat' | 'icon';
+    origW?: number;
+    origH?: number;
+    /** 当前拖/拉的是哪个目标：
+     * - 'chat' = 拖动展开态浮窗
+     * - 'icon' = 拖动最小化图标
+     * - 'resize' = 拉伸浮窗（这时 origW/origH/dir 必填） */
+    target: 'chat' | 'icon' | 'resize';
+    /** resize 时用的方向（4 角 + 4 边） */
+    dir?: ResizeDir;
     /** 本次拖动期间是否真的发生了位移（位移 ≥ 4px 视作拖动，不触发 click） */
     moved: boolean;
   } | null>(null);
@@ -184,26 +287,33 @@ export default function DraggableChat({
   }, [forceExpand]);
 
   // v0.1.02 P2-8：监听窗口尺寸变化（多显示器插拔 / 缩放窗口），
-  // 把持久化的位置重新夹到新视口内，避免浮窗被甩出可见区。
+  // 把持久化的位置/尺寸重新夹到新视口内，避免浮窗被甩出可见区。
   useEffect(() => {
     const onResize = () => {
-      setPos((p) => (p ? clampPos(p, window.innerWidth, window.innerHeight, 360, 300) : p));
+      setGeom((g) => (g ? clampGeom(g, window.innerWidth, window.innerHeight) : g));
       setMinPos((p) => (p ? clampPos(p, window.innerWidth, window.innerHeight, 48, 48) : p));
     };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // v0.1.02 P2-8：重置浮窗位置（清掉 localStorage + 回到默认右下角偏移）
+  // v0.1.02 P2-8：重置浮窗位置（清掉 localStorage + 回到默认右下角偏移 + 默认尺寸）
   const resetPosition = () => {
-    clearPos();
-    setPos(null);
+    clearGeom();
+    setGeom(null);
     setMinPos(null);
   };
 
-  /** 拖动：mousedown 记录起点；mousemove 实时改 pos；mouseup 持久化位置。
-   * v0.1.02 P2-9：把 target 抽出来，让展开态浮窗和最小化图标共用一套拖动逻辑。 */
-  const startDrag = (e: ReactMouseEvent<HTMLElement>, target: 'chat' | 'icon') => {
+  /** 拖动 / 拉伸：mousedown 记录起点；mousemove 实时改 geom；mouseup 持久化。
+ * v0.1.05 P1：扩 target 增加 'resize' 分支，与 chat/icon 共用同一套 mousemove/mouseup。
+ *
+ * drag（target='chat'|'icon'）：只改位置（x, y）
+ * resize（target='resize'）：按 dir 同时改 x/y/w/h，左/上方向 resize 时同步修正 x/y（保持对侧锚定） */
+  const startDrag = (
+    e: ReactMouseEvent<HTMLElement>,
+    target: 'chat' | 'icon' | 'resize',
+    dir?: ResizeDir,
+  ) => {
     e.preventDefault();
     e.stopPropagation();
     const rect = (containerRef.current as unknown as HTMLElement | null)?.getBoundingClientRect();
@@ -213,36 +323,81 @@ export default function DraggableChat({
       startY: e.clientY,
       origX: rect.left,
       origY: rect.top,
+      origW: rect.width,
+      origH: rect.height,
       target,
+      dir,
       moved: false,
     };
     const onMove = (ev: MouseEvent) => {
       const d = dragRef.current;
       if (!d) return;
-      const nextX = d.origX + (ev.clientX - d.startX);
-      const nextY = d.origY + (ev.clientY - d.startY);
-      // 位移 ≥ 4px 才标记为拖动（避免轻微抖动误判）
+      // 位移 ≥ 4px 才标记为拖动
       if (!d.moved && (Math.abs(ev.clientX - d.startX) >= 4 || Math.abs(ev.clientY - d.startY) >= 4)) {
         d.moved = true;
       }
-      // 拖动期间：始终 clamp 到视口内（允许起点极端越界，因为用户是连续拖动过来的）
-      const floatW = d.target === 'icon' ? 48 : 360;
-      const floatH = d.target === 'icon' ? 48 : 300;
+      if (d.target === 'icon') {
+        // 拖动最小化图标（48×48 固定）
+        const floatW = 48;
+        const floatH = 48;
+        const visibleW = 60;
+        const visibleH = 40;
+        const minX = -(floatW - visibleW);
+        const minY = -(floatH - visibleH);
+        const maxX = window.innerWidth - visibleW;
+        const maxY = window.innerHeight - visibleH;
+        const clampedPos: StoredPos = {
+          x: Math.max(minX, Math.min(d.origX + (ev.clientX - d.startX), maxX)),
+          y: Math.max(minY, Math.min(d.origY + (ev.clientY - d.startY), maxY)),
+        };
+        setMinPos(clampedPos);
+        return;
+      }
+      // 拖动 / resize 展开态浮窗
+      const dx = ev.clientX - d.startX;
+      const dy = ev.clientY - d.startY;
+      const baseW = d.origW || width;
+      const baseH = d.origH || height;
+      let nx = d.origX;
+      let ny = d.origY;
+      let nw = baseW;
+      let nh = baseH;
+      if (d.target === 'resize' && d.dir) {
+        // 按方向计算新几何；左/上方向同时调整位置保持对侧锚定
+        const affectsW = d.dir.includes('e') || d.dir.includes('w');
+        const affectsH = d.dir.includes('n') || d.dir.includes('s');
+        const growsW = d.dir.includes('e');
+        const growsH = d.dir.includes('s');
+        if (affectsW) {
+          const newW = growsW ? baseW + dx : baseW - dx;
+          // 限制最小尺寸
+          nw = Math.max(MIN_W, newW);
+          // 调整左边缘时同步修正 x（保持右边锚定）
+          if (!growsW) nx = d.origX + (baseW - nw);
+        }
+        if (affectsH) {
+          const newH = growsH ? baseH + dy : baseH - dy;
+          nh = Math.max(MIN_H, newH);
+          if (!growsH) ny = d.origY + (baseH - nh);
+        }
+      } else {
+        // 纯拖动：只改位置
+        nx = d.origX + dx;
+        ny = d.origY + dy;
+      }
+      // clamp 到视口内：保证至少 60×40 可见区、整体不超出视口、x/y ≥ -(w-visibleW)
       const visibleW = 60;
       const visibleH = 40;
-      const minX = -(floatW - visibleW);
-      const minY = -(floatH - visibleH);
-      const maxX = window.innerWidth - visibleW;
-      const maxY = window.innerHeight - visibleH;
-      const clampedPos: StoredPos = {
-        x: Math.max(minX, Math.min(nextX, maxX)),
-        y: Math.max(minY, Math.min(nextY, maxY)),
-      };
-      if (d.target === 'icon') {
-        setMinPos(clampedPos);
-      } else {
-        setPos(clampedPos);
-      }
+      const minX = -(nw - visibleW);
+      const minY = -(nh - visibleH);
+      const maxX = Math.max(0, window.innerWidth - visibleW);
+      const maxY = Math.max(0, window.innerHeight - visibleH);
+      const clampedX = Math.max(minX, Math.min(nx, maxX));
+      const clampedY = Math.max(minY, Math.min(ny, maxY));
+      // resize 后整体超出视口：把 w/h 收紧到视口内
+      const clampedW = Math.max(MIN_W, Math.min(nw, window.innerWidth - clampedX));
+      const clampedH = Math.max(MIN_H, Math.min(nh, window.innerHeight - clampedY));
+      setGeom({ x: clampedX, y: clampedY, w: clampedW, h: clampedH });
     };
     const onUp = () => {
       const finalTarget = dragRef.current?.target;
@@ -251,43 +406,64 @@ export default function DraggableChat({
       window.removeEventListener('mouseup', onUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      // 拖动结束：保存位置到 localStorage
+      // 拖动 / resize 结束：保存到 localStorage
+      // 注意：resize 时**用 React state**而不是 DOM BCR 写尺寸；
+      // 因为 React state 同步更新，但 DOM style.width 在某些环境（jsdom/未触发 layout）
+      // 下不会同步，导致读到旧值。state 永远是真相。
       if (containerRef.current) {
         const r = containerRef.current.getBoundingClientRect();
-        if (finalTarget === 'icon') {
-          writeMinPos({ x: r.left, y: r.top });
-        } else {
-          writePos({ x: r.left, y: r.top });
-        }
+        setGeom((g) => {
+          if (!g) return g;
+          if (finalTarget === 'icon') {
+            writeMinPos({ x: r.left, y: r.top });
+          } else if (finalTarget === 'resize') {
+            writeGeom({ x: g.x, y: g.y, w: g.w, h: g.h });
+          } else {
+            // 'chat'：x/y 从 BCR 读，w/h 不变
+            writeGeom({ x: r.left, y: r.top, w: g.w, h: g.h });
+          }
+          return g;
+        });
       }
     };
+    const d = dragRef.current;
+    if (!d) return;
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-    document.body.style.cursor = 'move';
+    // resize 时把鼠标光标设成对应方向，让用户视觉感知"在拉伸"
+    if (d.dir === 'n' || d.dir === 's') document.body.style.cursor = 'ns-resize';
+    else if (d.dir === 'e' || d.dir === 'w') document.body.style.cursor = 'ew-resize';
+    else if (d.dir === 'ne' || d.dir === 'sw') document.body.style.cursor = 'nesw-resize';
+    else if (d.dir === 'nw' || d.dir === 'se') document.body.style.cursor = 'nwse-resize';
+    else document.body.style.cursor = 'move';
     document.body.style.userSelect = 'none';
   };
 
   // v3.2.1 P1-3：键盘等价拖动——标题栏聚焦后方向键移动浮窗（10px/次，Shift = 50px/次），
   // 屏幕阅读器 / 鼠标不可用用户也能调整浮窗位置。Home 回到默认右下角。
-  const currentPos: StoredPos = pos ?? {
+  const currentGeom: StoredGeom = geom ?? {
     x: window.innerWidth - width - 24,
     y: window.innerHeight - height - 24,
+    w: width,
+    h: height,
   };
   const moveBy = (dx: number, dy: number) => {
-    const floatW = 360;
-    const floatH = 300;
+    const nw = currentGeom.w;
+    const nh = currentGeom.h;
     const visibleW = 60;
     const visibleH = 40;
-    const minX = -(floatW - visibleW);
-    const minY = -(floatH - visibleH);
+    const minX = -(nw - visibleW);
+    const minY = -(nh - visibleH);
     const maxX = window.innerWidth - visibleW;
     const maxY = window.innerHeight - visibleH;
-    const next: StoredPos = {
-      x: Math.max(minX, Math.min(currentPos.x + dx, maxX)),
-      y: Math.max(minY, Math.min(currentPos.y + dy, maxY)),
+    const next: StoredGeom = {
+      x: Math.max(minX, Math.min(currentGeom.x + dx, maxX)),
+      y: Math.max(minY, Math.min(currentGeom.y + dy, maxY)),
+      w: nw,
+      h: nh,
     };
-    setPos(next);
-    writePos(next);
+    setGeom(next);
+    writeGeom(next);
   };
   const onHeaderKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     // 已经被 input/textarea 占用的事件跳过（防御性，标题栏本身没 input）
@@ -368,9 +544,9 @@ export default function DraggableChat({
   }
 
   /* ===== 展开态：浮窗（fixed 定位，脱离文档流） ===== */
-  // 未拖动过时用 right/bottom 在右下角；拖动后用 left/top
-  const style: CSSProperties = pos
-    ? { left: pos.x, top: pos.y, width, height, zIndex }
+  // 未拖动过时用 right/bottom 在右下角；拖动或 resize 后用 left/top + width/height
+  const style: CSSProperties = geom
+    ? { left: geom.x, top: geom.y, width: geom.w, height: geom.h, zIndex }
     : { right: 24, bottom: 24, width, height, zIndex };
 
   return (
@@ -519,6 +695,61 @@ export default function DraggableChat({
           </button>
         </div>
       </div>
+
+      {/* v0.1.05 P1：resize handles（7 个 = 4 角 + 左/下/右 3 边）。
+          - 顶部中间**不**放 handle，避免与标题栏拖动逻辑冲突
+          - 每个 handle 宽度 RESIZE_HANDLE（约 8px），鼠标进入显示对应 cursor
+          - onMouseDown 调用 startDrag('resize', dir)，复用拖动的全局 mousemove/mouseup
+          - 视觉无痕（无背景色），但加 title + data-testid 方便测试与辅助技术识别 */}
+      <div
+        data-testid="fc-draggable-chat-resize-nw"
+        title="拖动调整大小（左上）"
+        onMouseDown={(e) => startDrag(e, 'resize', 'nw')}
+        className="absolute left-0 top-0 cursor-nwse-resize"
+        style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE }}
+      />
+      <div
+        data-testid="fc-draggable-chat-resize-ne"
+        title="拖动调整大小（右上）"
+        onMouseDown={(e) => startDrag(e, 'resize', 'ne')}
+        className="absolute right-0 top-0 cursor-nesw-resize"
+        style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE }}
+      />
+      <div
+        data-testid="fc-draggable-chat-resize-sw"
+        title="拖动调整大小（左下）"
+        onMouseDown={(e) => startDrag(e, 'resize', 'sw')}
+        className="absolute bottom-0 left-0 cursor-nesw-resize"
+        style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE }}
+      />
+      <div
+        data-testid="fc-draggable-chat-resize-se"
+        title="拖动调整大小（右下）"
+        onMouseDown={(e) => startDrag(e, 'resize', 'se')}
+        className="absolute bottom-0 right-0 cursor-nwse-resize"
+        style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE }}
+      />
+      <div
+        data-testid="fc-draggable-chat-resize-w"
+        title="拖动调整宽度"
+        onMouseDown={(e) => startDrag(e, 'resize', 'w')}
+        className="absolute left-0 top-1/2 -translate-y-1/2 cursor-ew-resize"
+        style={{ width: RESIZE_HANDLE, height: '100%' }}
+      />
+      <div
+        data-testid="fc-draggable-chat-resize-e"
+        title="拖动调整宽度"
+        onMouseDown={(e) => startDrag(e, 'resize', 'e')}
+        className="absolute right-0 top-1/2 -translate-y-1/2 cursor-ew-resize"
+        style={{ width: RESIZE_HANDLE, height: '100%' }}
+      />
+      <div
+        data-testid="fc-draggable-chat-resize-s"
+        title="拖动调整高度"
+        onMouseDown={(e) => startDrag(e, 'resize', 's')}
+        className="absolute bottom-0 left-1/2 -translate-x-1/2 cursor-ns-resize"
+        style={{ width: '100%', height: RESIZE_HANDLE }}
+      />
     </div>
   );
 }

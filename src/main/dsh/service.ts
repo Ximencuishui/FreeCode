@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DSHProcessManager, type DSHExitInfo } from './manager';
+import { EventEmitter } from 'node:events';
+import { DSHProcessManager, type DSHExitInfo, type DSHStatus } from './manager';
 import { DSHError } from './errors';
 import { sanitizeLog } from '../security/encryption';
 import type { LlmProviderKind } from '../../shared/types/settings';
+import type { DSHState, DSHRunStatus } from '../../shared/types/dsh';
 
 /**
  * DSH 高层服务：面向 FreeCoder 业务的一次性任务执行。
@@ -66,21 +68,30 @@ export interface DSHLaunchDescriptor extends DSHLaunch {
 /** Electron 主进程在打包后注入的路径（@types/node 未声明，此处显式标注） */
 type ElectronProcess = NodeJS.Process & { resourcesPath?: string };
 
+/** dsh 启动入口缺失时的统一文案。computeState 和 checkHealth 共享，避免两条 UI 文案飘。
+ *  「启动入口」比「运行时」更准确——缺失的不是 dsh 进程，而是启动它所需的可执行文件。 */
+const MISSING_LAUNCH_MESSAGE = '未检测到 DeepSeek Harness（dsh）启动入口';
+
 /**
  * 应用资源目录。
- * - 打包后：<app>/resources（process.resourcesPath）
- * - 开发态/未打包：仓库 resources/（注意开发态 process.resourcesPath 指向 Electron 自身的
- *   dist/resources，里面没有内置 dsh；且源码（jest: src/main/dsh）与打包输出（dist/main）的
- *   __dirname 层级不同，故用候选路径探测）
+ * - 打包后：<app>/resources（process.resourcesPath）—— 最优先。
+ * - 开发态/未打包：仓库根/resources（process.resourcesPath 指向 Electron 自身的 dist/resources，
+ *   里面没有内置 dsh）。dev 态下 __dirname 的层级取决于 vite 是把代码 bundle 到
+ *   dist/main/index.js 还是打出独立的 dist/main/dsh/service.js，所以用「固定深度 =
+ *   仓库根」+ 「process.cwd() 兜底」两条候选，任意一种 dev 启动方式都能命中。
  */
 function getResourcesPath(): string {
   const res = (process as ElectronProcess).resourcesPath ?? '';
   if (res && fs.existsSync(path.join(res, 'dsh', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'))) {
     return res;
   }
+  // dev 候选：从仓库根/resources 找。__dirname 在源码态（src/main/dsh）和编译态
+  // （dist/main/dsh）深度不同，但 「仓库根」都是 src/main/dsh 或 dist/main/dsh 往上三层，
+  // 统一用 '../../../' 即可。process.cwd() 兜底是给 `pnpm exec electron .` 或 monorepo
+  // 子目录场景用的——那时 __dirname 已被 build 工具重定位，但 cwd 仍是仓库根。
   const candidates = [
-    path.resolve(__dirname, '..', '..', 'resources'), // 打包输出 dist/main → 仓库根
-    path.resolve(__dirname, '..', '..', '..', 'resources'), // 源码 src/main/dsh → 仓库根
+    path.resolve(__dirname, '..', '..', '..', 'resources'),
+    path.resolve(process.cwd(), 'resources'),
   ];
   for (const dev of candidates) {
     if (fs.existsSync(path.join(dev, 'dsh'))) return dev;
@@ -509,16 +520,29 @@ function toLaunch(command: string[] | DSHLaunch | undefined): DSHLaunchDescripto
   return resolveDshLaunch();
 }
 
-/** DSH 一次性任务服务：每个任务启动 headless 进程，返回最终回复 */
-export class DSHService {
+/** DSH 一次性任务服务：每个任务启动 headless 进程，返回最终回复
+ *
+ * 同时作为 dsh 实时状态的发布者（方案 3）：
+ * - 继承 EventEmitter，emit 'state'，payload 为 DSHState
+ * - 聚合多个 DSHProcessManager 的 status + 启动入口可用性
+ * - 渲染层可订阅 dsh:state-change 拿到实时变化，或初次拉取快照 dsh:state
+ *  - 状态栏按 DSHState 选用文案：idle(就绪·按需启动) / starting / running / stopping / error / missing
+ */
+export class DSHService extends EventEmitter {
   private readonly launch: DSHLaunchDescriptor;
   private readonly dshHome?: string;
   private readonly apiKeyProvider?: () => Promise<DSHCredentials | null>;
+  /** 当前在跑的 DSH 子进程集合（每调用一次 runTask 注册一个，结束移出） */
+  private readonly activeManagers = new Set<DSHProcessManager>();
+  /** 最近一次计算的聚合状态快照；onStateChange 会把这份快照立刻推给订阅者 */
+  private currentState: DSHState;
 
   constructor(options: DSHServiceOptions = {}) {
+    super();
     this.launch = toLaunch(options.command);
     this.dshHome = options.dshHome;
     this.apiKeyProvider = options.apiKeyProvider;
+    this.currentState = this.computeState();
   }
 
   getCommand(): string[] {
@@ -527,6 +551,113 @@ export class DSHService {
 
   getLaunch(): DSHLaunchDescriptor {
     return this.launch;
+  }
+
+  /**
+   * 取一次 dsh 聚合状态的同步快照。渲染层初次挂载时拉一次拿到当前态，
+   * 之后再通过 onStateChange 订阅增量变化。详见 DSHState。
+   */
+  getState(): DSHState {
+    return this.currentState;
+  }
+
+  /**
+   * 订阅 dsh 状态变化：handler 会立即收到一次当前快照，之后每次状态切换再推送。
+   * 返回取消订阅函数。
+   *
+   * 典型用法（主进程 IPC 注册）：
+   *   const off = dsh.onStateChange((s) => win.webContents.send('dsh:state-change', s));
+   *   ipcMain.on('renderer-leave', off);
+   */
+  onStateChange(handler: (state: DSHState) => void): () => void {
+    this.on('state', handler);
+    handler(this.currentState);
+    return () => {
+      this.off('state', handler);
+    };
+  }
+
+  /**
+   * 计算当前 dsh 聚合状态。优先级：
+   *  1. 启动入口缺失（launch.source='missing' 或关键文件不存在）→ status='missing'
+   *  2. 有 manager 处于 error（出错后还没被清理）→ 'error'
+   *  3. 有 manager stopping → 'stopping'
+   *  4. 有 manager running → 'running'
+   *  5. 有 manager starting → 'starting'
+   *  6. 否则 idle（启动入口齐了 + 当前无任务 = 休眠中）
+   */
+  private computeState(): DSHState {
+    const launchOk = this.launch.source !== 'missing' && this.launchAvailable();
+    if (!launchOk) {
+      return {
+        available: false,
+        status: 'missing',
+        busyCount: 0,
+        message: MISSING_LAUNCH_MESSAGE,
+        reason: this.launch.description,
+      };
+    }
+    if (this.activeManagers.size === 0) {
+      return {
+        available: true,
+        status: 'idle',
+        busyCount: 0,
+        message: '休眠中',
+      };
+    }
+    const flags = { error: 0, stopping: 0, running: 0, starting: 0 };
+    for (const m of this.activeManagers) {
+      const s: DSHStatus = m.getStatus();
+      if (s === 'error') flags.error += 1;
+      else if (s === 'stopping') flags.stopping += 1;
+      else if (s === 'running') flags.running += 1;
+      else if (s === 'starting') flags.starting += 1;
+    }
+    let status: DSHRunStatus;
+    let message: string;
+    if (flags.error > 0) {
+      status = 'error';
+      message = 'dsh 上一次任务异常';
+    } else if (flags.stopping > 0) {
+      status = 'stopping';
+      message = 'dsh 停止中';
+    } else if (flags.running > 0) {
+      status = 'running';
+      message =
+        this.activeManagers.size === 1
+          ? 'dsh 任务进行中'
+          : `dsh 任务进行中（${this.activeManagers.size} 个并行）`;
+    } else if (flags.starting > 0) {
+      status = 'starting';
+      message = 'dsh 启动中…';
+    } else {
+      // 全是 stopped/idle 之类的终态：等 finally 真正移除后回到 idle，这里给一个过渡文案
+      status = 'idle';
+      message = '休眠中';
+    }
+    return {
+      available: true,
+      status,
+      busyCount: this.activeManagers.size,
+      message,
+    };
+  }
+
+  /** 重算并比较：变化则更新 currentState 并 emit('state') 通知订阅者 */
+  private notifyStateChanged(): void {
+    const next = this.computeState();
+    const prev = this.currentState;
+    if (
+      prev.available === next.available &&
+      prev.status === next.status &&
+      prev.busyCount === next.busyCount &&
+      prev.message === next.message &&
+      prev.reason === next.reason
+    ) {
+      return;
+    }
+    this.currentState = next;
+    this.emit('state', next);
   }
 
   /** dsh 运行时是否可用（打包前/开发环境据此展示提示） */
@@ -564,7 +695,7 @@ export class DSHService {
       default:
         return {
           available: false,
-          message: '未检测到 DeepSeek Harness（dsh）运行时',
+          message: MISSING_LAUNCH_MESSAGE,
         };
     }
   }
@@ -641,13 +772,33 @@ export class DSHService {
       signal.addEventListener('abort', onAbort, { once: true });
     }
 
+    // 注册 manager 到活跃集合 + 监听 status 变化 → 实时同步到聚合状态。
+    // ⚠️ 注意顺序：必须先 add + on，再 start() —— manager.start() 内部是同步 spawn，
+    // 会立刻 setStatus('starting') → setStatus('running')，若监听器还没挂上就收不到这两帧，
+    // 徽章的 'starting' 分支将永远见不到。
+    // 终态处理：manager 进入 stopped / idle 等终态后立刻 off + delete，避免 computeState()
+    // 拿到一个「status=stopped 但 activeManagers 还在」的不一致快照（flags 全空，busyCount=1，
+    // 推流 {status:'idle', busyCount:1} 是语义脏数据）。finally 保留作为正常路径清理，
+    // 极端重复清理走 Set.delete() 幂等，off() 也幂等。
+    this.activeManagers.add(manager);
+    const onManagerStatusChange = (s: DSHStatus) => {
+      if (s === 'stopped' || s === 'idle') {
+        manager.off('status', onManagerStatusChange);
+        this.activeManagers.delete(manager);
+      }
+      this.notifyStateChanged();
+    };
+    manager.on('status', onManagerStatusChange);
+
     // 【关键】启动子进程。此前缺失 start() 导致进程从未 spawn、任务永远卡在等待退出。
     manager.start();
+    this.notifyStateChanged();
 
     let exit: DSHExitInfo;
     try {
       exit = await waitForExit(manager);
     } catch (error) {
+      // 错误已经向上抛；finally 负责 manager 清理。
       if (cancelled || signal?.aborted) {
         throw new DSHError('TASK_CANCELLED', '任务已被中断');
       }
@@ -667,6 +818,12 @@ export class DSHService {
         throw new DSHError('DSH_START_FAILED', `无法启动 DeepSeek Harness（dsh）运行时：${reason}`);
       }
       throw new DSHError('DSH_START_FAILED', `DSH 任务执行失败：${reason}`);
+    } finally {
+      // 终止态已发生（exit 已 emit）：从活跃集合移除并再推一次聚合状态，
+      // 让 UI 立即从 running/starting 切回 idle。等待 notifyStateChanged 内部去重。
+      manager.off('status', onManagerStatusChange);
+      this.activeManagers.delete(manager);
+      this.notifyStateChanged();
     }
     if (cancelled || signal?.aborted) {
       throw new DSHError('TASK_CANCELLED', '任务已被中断');

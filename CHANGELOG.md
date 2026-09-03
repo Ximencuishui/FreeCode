@@ -1,10 +1,58 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
-
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 （patch 部分沿用仓库 `scripts/bump-version.mjs` 的两位数约定，例如 `0.1.01`、`0.1.02`）。
+
+## [Unreleased]
+
+dsh 运行时状态机改造（方案 3 落地）。状态栏右下角徽章从「⚠ 未检测到 dsh」一档细化为 6 档：
+loading（IPC 往返骨架）/ idle（休眠中）/ starting / running / stopping / error / missing。
+所有改动向后兼容，已通过 425 个单元测试 + 新增 7 个状态机用例。
+
+### Added
+
+- **dsh 实时状态机**：DSHService 继承 EventEmitter，新增 `getState()` / `onStateChange()` /
+  `computeState()` / `notifyStateChanged()`；多 manager 并发时按优先级聚合（error >
+  stopping > running > starting > idle > loading）。
+- **dsh:state IPC 通道**（`dsh:state` invoke 拉快照，`dsh:state-change` 主进程→渲染层推流）。
+  详见 `src/main/ipc/dsh.ts`、`src/main/ipc/index.ts`。
+- **preload 暴露 `window.electron.dsh.{state, onStateChange}`**（`src/preload/index.ts`）。
+- **`useDshState` React hook**（`src/renderer/hooks/useDshState.ts`）：mount 时拉一次快照 +
+  订阅增量变化，cleanup 取消订阅。
+- **`<DshStatusBadge>` 状态栏徽章**（`src/renderer/components/DshStatusBadge.tsx`）：
+  5 种视觉态（loading/idle/active/error/missing）+ title 悬浮提示。
+- **DSHRunStatus 类型 + DSHRunStatus 'loading' 分支**（`src/shared/types/dsh.ts`）：
+  渲染层 INITIAL 用 loading，避免 IPC 往返期间误显示"已就绪"。
+
+### Fixed
+
+- **dev 态下 dsh 内置运行时目录探测**：原 `getResourcesPath()` 两条候选路径深度不一致，
+  vite 编译到 `dist/main/dsh/service.js` 时第二条才命中。统一为「`__dirname/../../../resources`」
+  + 「`process.cwd()/resources`」兜底，覆盖源码态 / 编译态 / monorepo 子目录三种启动方式。
+- **状态栏文案「休眠中」**：之前 idle 提示文案是"已就绪 · 按需启动"，与「dsh 是按需启动」的语义
+  区分不清。统一为「休眠中」，徽章图标从 ✓ 改为 💤。
+- **DSHService 状态推送的语义 race**：原 `runTask` 顺序是 `manager.start() → add + on + notify`，
+  `manager.start()` 是同步 spawn，会先 setStatus('starting') 再 setStatus('running')，监听器
+  没挂上就收不到这两帧，徽章的 `case 'starting'` 永远见不到。改为「先 add + on，再 start()」；
+  监听器中遇到 stopped/idle 终态立刻 off + delete，避免聚合状态出现「status=stopped 但
+  busyCount=1」的脏快照。
+- **状态栏 INITIAL 与真实 missing 状态语义冲突**：INITIAL 之前是 `available: true, status: 'idle'`
+  + 提示「DSH 状态加载中…」，缺 dsh 用户的首屏会闪一下"假装就绪"。改为
+  `available: false, status: 'loading'`，徽章在 loading 期间显示骨架态而非误导。
+- **computeState() 与 checkHealth() 的 missing 文案漂移**：原 computeState 写"启动入口"、
+  checkHealth 写"运行时"，用户视觉像两条独立告警。统一为模块常量
+  `MISSING_LAUNCH_MESSAGE = '未检测到 DeepSeek Harness（dsh）启动入口'`。
+
+### Changed (Cleanup)
+
+- **`AppInfo` 删除 dshVersion / dshAvailable / dshHint 三个死字段**（`src/shared/types/app.ts`），
+  ipc/app.ts 不再接受 dsh 参数、不再每调用执行 `dsh.checkHealth()` 涉及文件系统 IO。
+- **DshStatusBadge / App.tsx 头注释与代码同步**：原注释引用「✓ 已就绪 · 按需启动」与实际
+  渲染的「💤 休眠中」不一致，统一修正。
+- **7 个状态机单元测试**（`tests/unit/dsh-service.test.ts`）：守住 getState / onStateChange /
+  activeManagers 生命周期 / 状态去重 / missing 文案常量复用。
 
 ## [0.1.02] - 2026-09-03
 

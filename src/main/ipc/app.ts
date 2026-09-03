@@ -3,21 +3,18 @@ import path from 'node:path';
 import os from 'node:os';
 import { IpcChannels } from '../../shared/types/ipc';
 import type { AppInfo } from '../../shared/types/app';
-import type { DSHService } from '../dsh/service';
 import { handleIpc } from './helpers';
 
-/** 应用域 IPC（API 文档 4.7） */
-export function registerAppIpc(dsh?: DSHService): void {
-  handleIpc<undefined, AppInfo>(IpcChannels.appInfo, () => {
-    const health = dsh?.checkHealth();
-    return {
-      version: app.getVersion(),
-      platform: process.platform,
-      electron: process.versions.electron ?? '',
-      dshAvailable: health?.available,
-      dshHint: health?.message,
-    };
-  });
+/** 应用域 IPC（API 文档 4.7）。
+ *  v0.1.03 起 dsh 状态由 `registerDshIpc` 独立负责（dsh:state / dsh:state-change），
+ *  这里不再每调用都走 checkHealth。AppInfo 仅保留版本/平台/Electron 三项。
+ */
+export function registerAppIpc(): void {
+  handleIpc<undefined, AppInfo>(IpcChannels.appInfo, () => ({
+    version: app.getVersion(),
+    platform: process.platform,
+    electron: process.versions.electron ?? '',
+  }));
 
   // 用系统浏览器打开外部链接（白名单仅允许 http/https，用于"如何获取 API Key"等）
   handleIpc<{ url: string }, { success: boolean }>(
