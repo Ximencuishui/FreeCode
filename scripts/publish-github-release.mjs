@@ -26,7 +26,7 @@
  *   - prerelease       boolean（默认 false）
  */
 import { readFileSync, readdirSync, statSync, createReadStream } from 'node:fs';
-import { dirname, join, basename } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import https from 'node:https';
 import { URL } from 'node:url';

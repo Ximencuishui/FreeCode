@@ -13,6 +13,12 @@
 //   { outDir, appOutDir, packager, electronPlatformName, arch, targets }
 // 项目根不在 Context 上，需要走 context.packager.projectDir（Packager 类的字段，
 // PlatformPackager 继承自 Packager）。
+//
+// 本文件保持 CommonJS（require/module.exports）写法以便被 electron-builder
+// Node 端直接 require()，不切 ESM：项目 package.json 未设 type: module，
+// 切 ESM 后 require is not defined。@typescript-eslint/no-require-imports
+// 规则对 require() 报错，所以这里禁用此规则。
+/* eslint-disable @typescript-eslint/no-require-imports */
 const fs = require('node:fs');
 const path = require('node:path');
 
