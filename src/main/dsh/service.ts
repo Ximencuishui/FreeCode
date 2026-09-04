@@ -205,13 +205,40 @@ export function resolveDshCommand(): string[] {
   return resolveDshLaunch().argv;
 }
 
-/** 从 headless stdout 提取最终回复（最后一条非空文本行） */
+/**
+ * 从 headless stdout 提取最终回复（保留所有非空文本行）。
+ *
+ * headless runner 在两种场景下都不写入 `<<<FC_REASONING_START>>>` 信封：
+ *   - 旧版 dsh（只输出最终回复，没有 reasoning marker）
+ *   - 新版 dsh 但本次没产生推理流（直答型任务）
+ * 这两种情况下 stdout 末尾就是 AI 的完整多行回复（含「请选择：」+ A/B/C/D/E 选项、
+ * 「```json」需求卡片、Markdown 等）。如果继续按「最后一条非空行」截取，会把
+ * 多行引导式对话截成只有最后一个选项——典型 Bug：用户问「做个小程序」，
+ * AI 完整回复含 5 个选项 + 引导语，但渲染层只看到「E. 其他（告诉我具体是啥）」，
+ * 像是 AI 没进入引导式需求分析。
+ *
+ * 修复：fallback 路径返回完整多行 stdout（剔除空行 + FC_* marker 噪音行），
+ * 让「多行引导式对话」与「JSON 需求卡片」都能完整呈现给用户。
+ */
 export function extractLastReply(stdout: string): string {
   const lines = stdout
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
   return lines[lines.length - 1] ?? '';
+}
+
+/**
+ * 把 stdout 中的 FC_* marker 行剔除，返回剩余正文（多行保留）。
+ * 兜底路径（无信封）用此函数拿到完整多行回复，避免只取最后一行造成引导式对话被截断。
+ */
+function stripMarkerLines(stdout: string): string {
+  return stdout
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('<<<FC_'))
+    .join('\n')
+    .trim();
 }
 
 /** 推理内容输出信封标记（与 headless runner 补丁约定；无补丁时输出不含信封） */
@@ -448,7 +475,11 @@ function isKnownToolName(name: string): boolean {
  * 带补丁的 runner 输出 `<推理流行*><<<FC_REASONING_START>>>\n<推理>\n<<<FC_REASONING_END>>>\n<完整回复>`
  * - 推理 = 信封内文本
  * - 回复 = 剔除信封与推理流标记行后的完整文本（**保留多行**，不能用 extractLastReply 只取最后一行）
- * 无信封时退回原逻辑（回复=最后一条非空行，推理为空）。
+ *
+ * 无信封时（旧版 dsh / 直答型任务 / 噪音行场景）：保留完整多行 stdout，
+ * 仅剔除 FC_* marker 行（避免噪音进入聊天历史），让引导式对话、需求卡片 JSON
+ * 等多行结构都能完整呈现——v0.1.09 修复：之前 fallback 走 extractLastReply 只取最后
+ * 一行，导致「请选择：+ A/B/C/D/E」这类引导对话被截断为「E. 其他（告诉我具体是啥）」。
  */
 export function parseDshOutput(stdout: string): { reply: string; reasoning?: string } {
   const startIdx = stdout.indexOf(REASONING_START);
@@ -462,9 +493,10 @@ export function parseDshOutput(stdout: string): { reply: string; reasoning?: str
       .filter((line) => !line.includes(REASONING_STREAM))
       .join('\n')
       .trim();
-    return { reply: clean || extractLastReply(stdout), reasoning: reasoning || undefined };
+    return { reply: clean || stripMarkerLines(stdout), reasoning: reasoning || undefined };
   }
-  return { reply: extractLastReply(stdout) };
+  // 无信封：保留完整多行（剔除 FC_* marker 噪音行），避免引导式对话被截断成单行
+  return { reply: stripMarkerLines(stdout) };
 }
 
 /**
@@ -761,7 +793,13 @@ export class DSHService extends EventEmitter {
 
     let output = '';
     manager.on('output', (o) => {
-      output += o.data;
+      // 只累积 stdout；stderr 仅用于实时转发给 UI（如 dev 调试信息），
+      // 不能混入 reply 字符串（否则会泄漏到聊天历史 / 触发 parseDshOutput 噪音）。
+      // v0.1.09 之前这里无条件 `output += o.data`，把 stderr 也吃进 reply——典型症状：
+      // fake-dsh 的 `[FakeDSH] profile=...` 调试回显（输出到 stderr）会被当作 AI 回复首行展示。
+      if (o.stream === 'stdout') {
+        output += o.data;
+      }
       // 实时进度更新：推理增量 + 工具调用（开发进度报告）逐条转发给调用方
       if (onProgress) {
         for (const update of extractProgressUpdates(o.data)) onProgress(update);

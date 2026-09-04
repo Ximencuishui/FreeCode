@@ -39,7 +39,7 @@ interface StoredPos {
   y: number;
 }
 
-/** Resize 方向：4 角 + 上/下/左/右 3 边，共 7 个 handle。 */
+/** Resize 方向：8 个 = 4 角 + 上/下/左/右 4 边。 */
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 /** localStorage 存储键
@@ -696,8 +696,10 @@ export default function DraggableChat({
         </div>
       </div>
 
-      {/* v0.1.05 P1：resize handles（7 个 = 4 角 + 左/下/右 3 边）。
-          - 顶部中间**不**放 handle，避免与标题栏拖动逻辑冲突
+      {/* v0.1.07 P2（用户请求）：resize handles（8 个 = 4 角 + 左/下/右/上 4 边）。
+          - 上方 'n' handle 左右各留 RESIZE_HANDLE = 8px，与 nw/ne 角落 handle 共享同一条 8px 边界，避免行为跳变
+          - 'n' handle 与 header 是兄弟节点（都在主容器内），mousedown 事件不会跨兄弟冒泡，
+            所以用户在 'n' handle 区域点击 → 触发 resize，header 其他区域 → 触发整体拖动，互不干扰
           - 每个 handle 宽度 RESIZE_HANDLE（约 8px），鼠标进入显示对应 cursor
           - onMouseDown 调用 startDrag('resize', dir)，复用拖动的全局 mousemove/mouseup
           - 视觉无痕（无背景色），但加 title + data-testid 方便测试与辅助技术识别 */}
@@ -749,6 +751,19 @@ export default function DraggableChat({
         onMouseDown={(e) => startDrag(e, 'resize', 's')}
         className="absolute bottom-0 left-1/2 -translate-x-1/2 cursor-ns-resize"
         style={{ width: '100%', height: RESIZE_HANDLE }}
+      />
+      {/* v0.1.07 P2（用户请求）：顶部边缘 resize handle，让用户从顶部拉伸浮窗高度。
+          - 与 nw/ne 角落 handle 无缝拼接：左右各留 RESIZE_HANDLE = 8px，避开 nw/ne 角落 handle 的 8×8 区域
+            （让 edge handle 与 corner handle 共享同一条 8px 边界，避免鼠标在两者之间移动时行为跳变）
+          - 与 header 不冲突：'n' handle 与 header 是兄弟节点，mousedown 不会跨兄弟冒泡
+          - startDrag('resize', 'n') 已支持 'n' 方向（affectsH=true, growsH=false，
+            保持底边锚定 + 高度跟随 dy 反向变化） */}
+      <div
+        data-testid="fc-draggable-chat-resize-n"
+        title="拖动调整高度（顶部）"
+        onMouseDown={(e) => startDrag(e, 'resize', 'n')}
+        className="absolute left-2 right-2 top-0 cursor-ns-resize"
+        style={{ height: RESIZE_HANDLE }}
       />
     </div>
   );

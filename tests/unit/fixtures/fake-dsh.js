@@ -101,7 +101,10 @@ if (task.includes('开发工程师')) {
 
 // 通用回复
 setTimeout(() => {
-  console.log(`[FakeDSH] profile=${profile} task=${task}`);
+  // v0.1.09：把回显从 stdout 移到 stderr（parseDshOutput 不会再把它当成 AI 回复的一部分）。
+  // 之前用 stdout 输出 `[FakeDSH] profile=... task=...` 让排查方便，但 parseDshOutput 改成
+  // 保留完整多行后，这条回显会泄漏到聊天历史。stderr 不被 parseDshOutput 解析，保留排查价值。
+  console.error(`[FakeDSH] profile=${profile} task=${task}`);
   console.log('模拟回复：你好');
   process.exit(0);
 }, 150);

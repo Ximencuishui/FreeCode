@@ -452,7 +452,7 @@ describe('DraggableChat（AI 助理聊天浮窗）', () => {
     return { container };
   }
 
-  it('resize：展开态浮窗默认渲染 7 个 resize handle（4 角 + 左/下/右 3 边，顶部中间不放）', () => {
+  it('resize：展开态浮窗默认渲染 8 个 resize handle（4 角 + 左/下/右/上 4 边）', () => {
     render(<DraggableChat />);
     const handles = [
       'fc-draggable-chat-resize-nw',
@@ -462,12 +462,11 @@ describe('DraggableChat（AI 助理聊天浮窗）', () => {
       'fc-draggable-chat-resize-w',
       'fc-draggable-chat-resize-e',
       'fc-draggable-chat-resize-s',
+      'fc-draggable-chat-resize-n',
     ];
     for (const id of handles) {
       expect(screen.getByTestId(id)).toBeTruthy();
     }
-    // 顶部中间没有 handle（避免与标题栏拖动冲突）
-    expect(screen.queryByTestId('fc-draggable-chat-resize-n')).toBeNull();
   });
 
   it('resize 右下角：拖动后宽高增大，left/top 不变', () => {
@@ -492,6 +491,28 @@ describe('DraggableChat（AI 助理聊天浮窗）', () => {
     expect(parseInt(container.style.top, 10)).toBeLessThan(100);
     expect(parseInt(container.style.width, 10)).toBeGreaterThan(360);
     expect(parseInt(container.style.height, 10)).toBeGreaterThan(300);
+  });
+
+  it('resize 顶部边缘 (n)：向上拖后高度增大，left 不变，bottom 锚定', () => {
+    // 'n' handle 行为：dy<0 (向上) → newH = baseH - dy 增大；ny 同步下移保持 bottom 不变
+    // 初始 top=100, h=300 → bottom = 400
+    // 拖 dy=-40：newH = 300 - (-40) = 340；ny = 100 + (300-340) = 60 → bottom = 60+340 = 400 ✓
+    const { container } = startResize('fc-draggable-chat-resize-n', 0, -40);
+    expect(parseInt(container.style.left, 10)).toBe(100); // left 不变
+    expect(parseInt(container.style.top, 10)).toBeLessThan(100); // top 减小（向上移动）
+    expect(parseInt(container.style.width, 10)).toBe(360); // width 不变（不影响水平尺寸）
+    expect(parseInt(container.style.height, 10)).toBeGreaterThan(300); // height 增大
+    // 关键：底边位置锚定
+    const top = parseInt(container.style.top, 10);
+    const h = parseInt(container.style.height, 10);
+    expect(top + h).toBe(400);
+  });
+
+  it('resize 顶部边缘 (n)：向下拖到底会被钳制到 MIN_H', () => {
+    // 拖 dy=+9999：newH = 300 - 9999 → 被钳到 MIN_H=160
+    // ny = 100 + (300-160) = 240；bottom = 240+160 = 400（保持 ✓）
+    const { container } = startResize('fc-draggable-chat-resize-n', 0, 9999);
+    expect(parseInt(container.style.height, 10)).toBeGreaterThanOrEqual(160);
   });
 
   it('resize 最小尺寸限制：拖到极小也会被钳制到 MIN_W/MIN_H', () => {

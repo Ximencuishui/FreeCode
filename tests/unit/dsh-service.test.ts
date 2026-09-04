@@ -48,9 +48,31 @@ describe('DSH 服务层', () => {
     expect(r.reply).toBe('方案一：xxx\n方案二：yyy\n方案三：zzz');
   });
 
-  it('parseDshOutput：无信封时回退为最后一行，推理为空', () => {
-    const r = parseDshOutput('第一行\n第二行');
-    expect(r.reply).toBe('第二行');
+  it('parseDshOutput：无信封时保留完整多行（不再只取最后一行），推理为空', () => {
+    // v0.1.09 修复：之前 fallback 走 extractLastReply 只取最后一行，
+    // 导致「做个小程序」这类引导式对话被截断成「E. 其他（告诉我具体是啥）」单行。
+    // 现在 fallback 保留完整多行 stdout，让 A/B/C/D/E 五个选项 + 引导语都能呈现。
+    const out =
+      '好的！做小程序的想法挺不错。在开始之前，我想先跟你聊清楚几个关键问题，这样做出来的东西才能真正合你心意～\n' +
+      '第一个问题：**这个小程序主要用来做什么？** 用一句话告诉我它的核心目标就行，比如"记录每天的读书笔记""管理健身计划"之类的～\n' +
+      '请选择：\n' +
+      'A. 健身相关（记录运动、约课、买课等）\n' +
+      'B. 学习相关（背单词、做笔记、刷题等）\n' +
+      'C. 生活管理（记账、打卡、待办事项等）\n' +
+      'D. 社交社区（聊天、兴趣圈子、找搭子等）\n' +
+      'E. 其他（告诉我具体是啥）';
+    const r = parseDshOutput(out);
+    expect(r.reply).toBe(out);
+    expect(r.reasoning).toBeUndefined();
+  });
+
+  it('parseDshOutput：无信封时剔除空行与 FC_* marker 噪音行', () => {
+    // fallback 路径应剔除 FC_* marker 行（避免噪声进入聊天历史），
+    // 但保留其他所有非空文本行（包括首行 / 末行 / 中间空白行被 trim 后丢弃）。
+    const out =
+      '\n\n<<<FC_REASONING_STREAM>>>"片段"\n引导语\n\nA. 选项一\nB. 选项二\n<<<FC_TOOL_CALL>>>"name":"write"\nE. 其他\n';
+    const r = parseDshOutput(out);
+    expect(r.reply).toBe('引导语\nA. 选项一\nB. 选项二\nE. 其他');
     expect(r.reasoning).toBeUndefined();
   });
 
@@ -309,6 +331,28 @@ describe('DSH 服务层', () => {
     });
     const result = await service.runTask(os.tmpdir(), '失败任务');
     expect(result.exitCode).not.toBe(0);
+  });
+
+  /** v0.1.09 回归（用户反馈 Bug）：用户问"做个小程序"等引导式需求分析场景，
+   *  AI 完整回复是多行（含「请选择：」+ A/B/C/D/E 五个选项 + 引导语）。
+   *  此前 runTask 走 parseDshOutput 的 fallback 路径 `extractLastReply` 只取最后一行，
+   *  导致整个引导对话被截断为「E. 其他（告诉我具体是啥）」单行——用户看到 AI
+   *  像"没进入引导式对话"。修复后 fallback 保留完整多行 stdout，
+   *  并把 stderr 隔离不再泄漏到 reply。 */
+  it('runTask：需求分析多行回复完整保留（不再截断为最后一行）', async () => {
+    const service = new DSHService({
+      command: [process.execPath, FAKE_DSH, '--profile', 'headless'],
+      apiKeyProvider: async () => ({ apiKey: 'sk-test-1234567890', provider: 'deepseek' }),
+    });
+    const result = await service.runTask(os.tmpdir(), '你是产品需求分析师');
+    expect(result.exitCode).toBe(0);
+    // 引导语保留
+    expect(result.reply).toContain('好的，谁会用这个工具');
+    // 5 个选项（含 A/B/C/D/E）全部保留——之前会被截断为只剩最后一行
+    expect(result.reply).toContain('A. 个人使用');
+    expect(result.reply).toContain('B. 家庭共用');
+    // stderr 的 [FakeDSH] 回显不应泄漏到 reply
+    expect(result.reply).not.toContain('[FakeDSH]');
   });
 
   it('runTask：未配置 API Key 时抛 DSHError(API_KEY_MISSING)（渲染层据此弹窗引导接入）', async () => {
