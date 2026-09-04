@@ -36,6 +36,9 @@ import type {
 import type { SignalEvent, ChatResponseEvent } from '../../shared/types/chat';
 import type { StorageManager, Requirements } from '../storage/types';
 import type { DSHService } from '../dsh/service';
+import type { LLMClient } from '../llm/client';
+import { runSkill } from '../llm/skill';
+import { createIcebreakingSkill } from '../llm/skills/icebreaking';
 import { buildRequirementReviewTask, buildAutoTestTask } from '../dsh/prompt';
 import { parseStructuredTestReport } from '../dsh/testReportParser';
 import { toolProgressLabel } from '../dev/developer';
@@ -321,7 +324,27 @@ export function registerProjectIpc(
   dsh: DSHService,
   developer: Developer,
   planner: VersionPlanner,
+  llmClient: LLMClient,
 ): void {
+  /**
+   * 新建项目后 fire-and-forget 触发破冰（需求引导第一轮对话）：
+   * - 不阻塞 projectCreate IPC 返回；
+   * - runSkill 内部已经处理了所有错误（API_KEY_MISSING 静默、其他错误走 chat:signal），
+   *   这里只是防御性兜底，避免 unhandled rejection 污染主进程。
+   */
+  const triggerIcebreaking = (meta: { id: string; name: string }): void => {
+    const skill = createIcebreakingSkill(meta.name);
+    void runSkill(
+      skill,
+      { projectName: meta.name, projectId: meta.id },
+      { storage, llm: llmClient, broadcastResponse, broadcastSignal },
+    ).catch((error) => {
+      process.stderr.write(
+        `[FreeCoder] 自动破冰异常：${error instanceof Error ? error.stack ?? error.message : String(error)}\n`,
+      );
+    });
+  };
+
   handleIpc<undefined, ProjectListResult>(IpcChannels.projectList, async () => {
     const metas = await storage.listProjects();
     return {
@@ -349,6 +372,8 @@ export function registerProjectIpc(
       });
       // 记录为最近打开的项目（启动时恢复选中）
       await storage.saveSettings({ lastOpenedProject: meta.id });
+      // 新建项目后自动开启需求引导（fire-and-forget；不阻塞 IPC 返回）
+      triggerIcebreaking(meta);
       return {
         success: true,
         projectId: meta.id,

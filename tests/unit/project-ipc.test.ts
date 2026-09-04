@@ -3,6 +3,7 @@
  * 项目管理域 IPC 守卫单元测试（版本分段相关）：
  * - project:confirm 幂等：已进入 planned/后续阶段时不再重复生成版本计划
  * - project:confirm-plan 结构校验：V1 缺失标签或功能时拒绝，避免静默回退为全量开发
+ * - 新建项目后自动触发冰冰 skill（fire-and-forget，不阻塞 IPC 返回）
  */
 jest.mock('electron', () => ({
   ipcMain: { handle: jest.fn() },
@@ -76,6 +77,9 @@ class FakeStorage implements StorageManager {
   getProjectCodePath(projectId: string): string {
     return `/fake/projects/${projectId}/code`;
   }
+  getDefaultProjectsDir(): string {
+    return '/fake/projects';
+  }
   async ensureProjectDirectories(): Promise<void> {}
 }
 
@@ -103,10 +107,13 @@ describe('项目管理域 IPC 守卫（版本分段）', () => {
   const developer = { startDevelopment: jest.fn() };
   const planner = { generatePlan: jest.fn(async () => undefined) };
   const dsh = { runTask: jest.fn(async () => ({ reply: 'REVIEW_PASS', exitCode: 0 })) };
+  // llmClient 在 version-plan 相关测试中不会被调用，但必须传入签名（registerProjectIpc
+  // 会因缺它而类型报错）。各用例可用真实 spy 替换。
+  const llmClient = { call: jest.fn() };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    registerProjectIpc(new FakeStorage(), dsh as never, developer as never, planner as never);
+    registerProjectIpc(new FakeStorage(), dsh as never, developer as never, planner as never, llmClient as never);
   });
 
   it('project:confirm 幂等：planned 状态重复确认不再生成计划', async () => {
@@ -116,7 +123,7 @@ describe('项目管理域 IPC 守卫（版本分段）', () => {
     await storage.updateProjectMeta(meta.id, { status: 'planned' });
     // 重新注册，使用带预置数据的 storage
     jest.clearAllMocks();
-    registerProjectIpc(storage, dsh as never, developer as never, planner as never);
+    registerProjectIpc(storage, dsh as never, developer as never, planner as never, llmClient as never);
 
     const handler = getHandler(IpcChannels.projectConfirm);
     const result = await handler({}, { projectId: meta.id });
@@ -132,7 +139,7 @@ describe('项目管理域 IPC 守卫（版本分段）', () => {
     await storage.saveRequirements(meta.id, makeRequirements(meta.id));
     await storage.updateProjectMeta(meta.id, { status: 'developing' });
     jest.clearAllMocks();
-    registerProjectIpc(storage, dsh as never, developer as never, planner as never);
+    registerProjectIpc(storage, dsh as never, developer as never, planner as never, llmClient as never);
 
     const handler = getHandler(IpcChannels.projectConfirm);
     await handler({}, { projectId: meta.id });
@@ -149,7 +156,7 @@ describe('项目管理域 IPC 守卫（版本分段）', () => {
       versions: [{ label: 'V1', description: '先能记账', features: [] }],
     };
     jest.clearAllMocks();
-    registerProjectIpc(storage, developer as never, planner as never);
+    registerProjectIpc(storage, dsh as never, developer as never, planner as never, llmClient as never);
 
     const handler = getHandler(IpcChannels.projectConfirmPlan);
     const result = await handler({}, { projectId: meta.id, plan: badPlan });
@@ -168,7 +175,7 @@ describe('项目管理域 IPC 守卫（版本分段）', () => {
       versions: [{ label: '  ', description: '', features: ['记录收支'] }],
     };
     jest.clearAllMocks();
-    registerProjectIpc(storage, developer as never, planner as never);
+    registerProjectIpc(storage, dsh as never, developer as never, planner as never, llmClient as never);
 
     const handler = getHandler(IpcChannels.projectConfirmPlan);
     const result = await handler({}, { projectId: meta.id, plan: badPlan });
@@ -189,7 +196,7 @@ describe('项目管理域 IPC 守卫（版本分段）', () => {
     };
     developer.startDevelopment.mockImplementation(async () => undefined);
     jest.clearAllMocks();
-    registerProjectIpc(storage, dsh as never, developer as never, planner as never);
+    registerProjectIpc(storage, dsh as never, developer as never, planner as never, llmClient as never);
 
     const handler = getHandler(IpcChannels.projectConfirmPlan);
     const result = await handler({}, { projectId: meta.id, plan: goodPlan });
@@ -199,5 +206,101 @@ describe('项目管理域 IPC 守卫（版本分段）', () => {
     const metaAfter = await storage.getProject(meta.id);
     expect(metaAfter?.status).toBe('developing');
     expect(metaAfter?.versionPlan).toEqual(goodPlan);
+  });
+});
+
+/**
+ * 新建项目后自动激活需求引导（冰破）测试。
+ * plan: 用 fire-and-forget 调 runSkill，不阻塞 projectCreate IPC 返回。
+ */
+describe('projectCreate 自动触发破冰', () => {
+  // 共享 mock（在每个用例里重新构造 spy，避免互相污染）
+  const developer = { startDevelopment: jest.fn() };
+  const planner = { generatePlan: jest.fn(async () => undefined) };
+  const dsh = { runTask: jest.fn() };
+
+  /** 等 fire-and-forget 微任务链走完（runSkill 内的 saveChatMessage 等 await） */
+  const flushMicrotasks = async (): Promise<void> => {
+    // 多次 setImmediate 让 runSkill 内部所有微任务全部排干
+    for (let i = 0; i < 5; i += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  };
+
+  it('projectCreate 后 fire-and-forget 调 llm.call，IPC 立即返回（不阻塞）', async () => {
+    const llmCall = jest.fn(
+      async () => ({ content: 'AI 破冰回复：今天想做啥？', reasoning: '思考中…' }),
+    );
+    const llmClient = { call: llmCall };
+    const storage = new FakeStorage();
+    jest.clearAllMocks();
+    registerProjectIpc(storage, dsh as never, developer as never, planner as never, llmClient as never);
+
+    const handler = getHandler(IpcChannels.projectCreate);
+    const start = Date.now();
+    const result = await handler({}, { name: '我的记账本' });
+    const elapsed = Date.now() - start;
+
+    // IPC 立即返回 success（不应等 LLM 完成）
+    expect(result).toEqual(
+      expect.objectContaining({ success: true, projectId: expect.any(String) }),
+    );
+    expect(elapsed).toBeLessThan(100); // 几乎立即返回
+
+    // 等微任务链跑完
+    await flushMicrotasks();
+
+    // llm.call 被调用过，且 messages 含 system + user
+    expect(llmCall).toHaveBeenCalledTimes(1);
+    const callArgs = llmCall.mock.calls[0] as unknown as Array<unknown>;
+    const request = callArgs[0] as {
+      messages: Array<{ role: string; content: string }>;
+      maxTokens?: number;
+    };
+    expect(request.messages[0].role).toBe('system');
+    expect(request.messages[0].content).toContain('我的记账本');
+    expect(request.messages[1].role).toBe('user');
+    expect(request.messages[1].content).toContain('项目已创建');
+  });
+
+  it('LLM 调用抛错时 projectCreate 仍正常返回（不影响主流程）', async () => {
+    const llmCall = jest.fn(async () => {
+      throw new Error('boom');
+    });
+    const llmClient = { call: llmCall };
+    const storage = new FakeStorage();
+    jest.clearAllMocks();
+    registerProjectIpc(storage, dsh as never, developer as never, planner as never, llmClient as never);
+
+    const handler = getHandler(IpcChannels.projectCreate);
+    const result = await handler({}, { name: '会失败的项目' });
+
+    expect(result).toEqual(
+      expect.objectContaining({ success: true, projectId: expect.any(String) }),
+    );
+
+    await flushMicrotasks();
+    // llm.call 仍被调用（fire-and-forget 触发了）
+    expect(llmCall).toHaveBeenCalledTimes(1);
+  });
+
+  it('LLM 抛 API_KEY_MISSING 时 projectCreate 仍正常返回（冰破静默）', async () => {
+    const llmCall = jest.fn(async () => {
+      const err = new Error('no key');
+      err.name = 'LLMError';
+      // 模拟 LLMError（不引入真实类以免引入 client.ts）
+      return Promise.reject(Object.assign(err, { code: 'API_KEY_MISSING' }));
+    });
+    const llmClient = { call: llmCall };
+    const storage = new FakeStorage();
+    jest.clearAllMocks();
+    registerProjectIpc(storage, dsh as never, developer as never, planner as never, llmClient as never);
+
+    const handler = getHandler(IpcChannels.projectCreate);
+    const result = await handler({}, { name: '没配 Key' });
+    expect(result).toEqual(expect.objectContaining({ success: true }));
+
+    await flushMicrotasks();
+    expect(llmCall).toHaveBeenCalledTimes(1);
   });
 });

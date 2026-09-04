@@ -10,6 +10,7 @@ import { DSHService } from './dsh/service';
 import { ensureHeadlessRunnerPatched } from './dsh/patchRunner';
 import { Developer } from './dev/developer';
 import { VersionPlanner } from './dev/planner';
+import { LLMClient } from './llm/client';
 
 /**
  * 主进程兜底日志：任何未捕获异常/拒绝都记录到 ~/.freecoder/logs/error.log，
@@ -72,8 +73,23 @@ app.whenReady().then(async () => {
   });
   const developer = new Developer({ storage, dsh });
   const planner = new VersionPlanner({ storage, dsh });
+  // 需求调研阶段用的轻量 LLM 客户端（与 DSH 路径解耦，不启动 dsh 子进程）。
+  // 复用 storage.loadApiKey() + storage.getSettings() 拿凭据，写法与 DSHService 一致。
+  const llmClient = new LLMClient({
+    apiKeyProvider: async () => {
+      const key = await storage.loadApiKey();
+      if (!key) return null;
+      const settings = await storage.getSettings();
+      return {
+        apiKey: key,
+        provider: settings.provider === 'openai-compatible' ? 'openai-compatible' : 'deepseek',
+        baseUrl: settings.baseUrl,
+        model: settings.model,
+      };
+    },
+  });
 
-  registerIpcHandlers(storage, dsh, developer, planner);
+  registerIpcHandlers(storage, dsh, developer, planner, llmClient);
   installAppMenu();
   registerClipboardShortcuts(); // 在创建窗口前注册，覆盖主窗口与 webview
   createMainWindow();

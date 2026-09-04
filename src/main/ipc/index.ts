@@ -12,6 +12,7 @@ import type { StorageManager } from '../storage/types';
 import type { DSHService } from '../dsh/service';
 import type { Developer } from '../dev/developer';
 import type { VersionPlanner } from '../dev/planner';
+import type { LLMClient } from '../llm/client';
 
 /** 注册全部 IPC 处理器，见 API 文档第七章接口清单 */
 export function registerIpcHandlers(
@@ -19,10 +20,11 @@ export function registerIpcHandlers(
   dsh: DSHService,
   developer: Developer,
   planner: VersionPlanner,
+  llmClient: LLMClient,
 ): void {
   registerAppIpc();
   registerChatIpc(storage, dsh);
-  registerProjectIpc(storage, dsh, developer, planner);
+  registerProjectIpc(storage, dsh, developer, planner, llmClient);
   registerPreviewIpc(storage);
   registerExportIpc(storage);
   registerPackageIpc(storage);

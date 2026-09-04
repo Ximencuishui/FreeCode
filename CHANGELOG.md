@@ -5,7 +5,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 （patch 部分沿用仓库 `scripts/bump-version.mjs` 的两位数约定，例如 `0.1.01`、`0.1.02`）。
 
-## [Unreleased]
+## [0.1.11] - 2026-09-04
+
+新建项目后 AI 助理不再沉默 —— 自动激活 5 步需求引导对话的第一轮「破冰 + 流程预告」，
+DSH 引擎保持休眠（需求调研阶段不需要启动开发引擎）。新增 `src/main/llm/` 子系统
+（`LLMClient` HTTP 客户端 + `Skill` 抽象层 + `icebreaking` skill），与 DSH 完全解耦。
+
+51/51 测试套件、471/471 单元测试通过；typecheck + lint 0 errors。
+
+### Added
+
+- **`LLMClient` 轻量 HTTP 客户端**（`src/main/llm/client.ts`，231 行）：
+  - 直接调 DeepSeek / OpenAI 兼容 API（Bearer Token 鉴权）
+  - 非流式（`stream: false`），4 种错误码归一：`API_KEY_MISSING / AUTH_INVALID / TIMEOUT / LLM_ERROR`
+  - 支持 `AbortSignal` + 30s 默认超时；`reasoning_content` 字段透传
+  - 凭据复用 `storage.loadApiKey() + storage.getSettings()`，与 `DSHService.apiKeyProvider` 同源写法
+- **`Skill` 抽象层**（`src/main/llm/skill.ts`，195 行）：
+  - `Skill` 接口（`id` / `systemPrompt` / `buildMessages`）+ `runSkill` 统一入口
+  - 拼 messages → 调 LLM → 持久化 assistant 消息 → 广播 `thinking / message / done` 事件
+  - 8 秒 `thinking` 心跳（与 `chat:send` 的 `progressTimer` 风格一致）
+  - 错误按 `LLMError.code` 分流：`API_KEY_MISSING` 静默、`AUTH_INVALID/TIMEOUT/LLM_ERROR` 推 `chat:signal: error`
+  - 永远 `resolve`（不 reject）—— fire-and-forget 调用方无需关心
+- **`icebreaking` skill**（`src/main/llm/skills/icebreaking.ts`，65 行）：
+  - `createIcebreakingSkill(projectName)` 工厂，每个项目独立 systemPrompt（避免项目间串扰）
+  - systemPrompt 含 5 步流程预告（破冰 / 目标用户 / 核心功能 / 使用场景 / 视觉偏好）
+  - 风格约束：中文口语化、一次只问 1 个问题、避免技术术语、不输出 JSON
+- **`registerProjectIpc` 增加 `llmClient` 参数**（`src/main/ipc/project.ts`）：
+  - 新增 `triggerIcebreaking(meta)` 闭包，在 `projectCreate` handler 末尾 fire-and-forget 调用
+  - 不阻塞 IPC 返回；runSkill 内部已处理所有错误
+
+### Changed
+
+- **`src/main/ipc/index.ts`**：`registerIpcHandlers` 增加第 5 个参数 `llmClient: LLMClient`
+- **`src/main/index.ts`**：创建 `LLMClient` 实例并注入 IPC（与 DSH 同源 `apiKeyProvider` 写法）
+
+### Fixed
+
+- **新建项目后 AI 助理不主动激活需求引导**（与《产品需求文档 v3.0 §2.1.2》对齐）：
+  0.1.10 之前的版本只把「DSH」作为唯一 AI 入口，需求引导也走 DSH 子进程；
+  DSH 是开发引擎，启动会闪「任务进行中」徽章且耗时秒级，不适合做"秒回"的破冰问候。
+  本版本把需求阶段切到 `LLMClient` 路径，DSH 保持休眠。
+
+### Test Coverage
+
+- `tests/unit/llm-client.test.ts`（新增，19 用例）：DeepSeek/openai 端点、baseUrl 后缀处理、
+  401/403/500、超时、AbortSignal、网络错误、JSON 解析失败、`reasoning_content`、choices 为空、override model
+- `tests/unit/llm-skill-icebreaking.test.ts`（新增，13 用例）：buildMessages 结构、runSkill 成功路径、
+  错误分流 5 种码、thinking 心跳、永远 resolve
+- `tests/unit/project-ipc.test.ts`（修改，+3 用例）：fire-and-forget 调 `llm.call`、
+  LLM 抛错 IPC 仍正常返回、`API_KEY_MISSING` 静默
+- `FakeStorage` 补 `getDefaultProjectsDir` 方法（`registerProjectIpc` 新参数需要的接口）
+
+---
+
+## [0.1.10] - 2026-09-04
 
 AI 助理引导式需求分析多行回复（"请选择：" + A/B/C/D/E 五个选项）被解析层
 截断为单行「其他（告诉我具体是啥）」，用户看起来像 AI 没进入引导对话；
