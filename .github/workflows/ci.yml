@@ -4,6 +4,15 @@ on:
   push:
     branches: [main, master, develop]
   pull_request:
+  # v3.2.2 P0-x：人工触发发布流水线。仓库管理员先在本地 `pnpm package` 验证产物，
+  # 再在此 workflow 的 Run workflow 页面触发，并把产物上传到 GitHub Release。
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: '是否发布到 GitHub Release（需要 GH_TOKEN/PUSH 权限）'
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   lint-typecheck:
@@ -35,3 +44,90 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: npm --prefix resources/app-runtime ci
       - run: pnpm exec jest --runInBand
+
+  # v3.2.2 P0-x：release 流水线。
+  # 必须在 windows-latest 跑（electron-builder 打 .exe）。DSH 运行时由仓库管理员配置
+  # 的 `DSH_BUNDLE_ARCHIVE_B64` secret 提供——DSH 全家桶存在未 declared deps，
+  # `pnpm install @deepseek-ai/dsh` 拉不完整，因此必须用一份"已验证可工作"的完整 bundle
+  # 归档作为 CI 前置，详见 CONTRIBUTING.md 的「发布打包前置」一节。
+  release-windows:
+    runs-on: windows-latest
+    needs: [lint-typecheck, unit-tests]
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    env:
+      DSH_PACKAGE_ROOT: 'D:\DSH'
+      NODE_EXE_PATH: 'C:\Program Files\nodejs\node.exe'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npm --prefix resources/app-runtime ci
+
+      # 解压 DSH bundle 归档到 D:\DSH，由 `pnpm package` → `pnpm bundle:dsh` 链路读取。
+      # 归档准备见 CONTRIBUTING.md：开发者在能访问 DSH checkout 的机器上打包 zip → base64 →
+      # 配置到仓库 Settings → Secrets and variables → Actions → `DSH_BUNDLE_ARCHIVE_B64`。
+      - name: Restore DSH 运行时（来自 secret）
+        shell: pwsh
+        env:
+          DSH_BUNDLE_B64: ${{ secrets.DSH_BUNDLE_ARCHIVE_B64 }}
+        run: |
+          if (-not $env:DSH_BUNDLE_B64) {
+            Write-Error "仓库未配置 DSH_BUNDLE_ARCHIVE_B64 secret。请按 CONTRIBUTING.md 的「发布打包前置」一节准备并配置 secret。"
+            exit 1
+          }
+          New-Item -Path 'D:\DSH' -ItemType Directory -Force | Out-Null
+          $tmp = Join-Path $env:TEMP 'dsh-bundle.zip'
+          [IO.File]::WriteAllBytes($tmp, [Convert]::FromBase64String($env:DSH_BUNDLE_B64))
+          Expand-Archive -Path $tmp -DestinationPath 'D:\DSH' -Force
+          Remove-Item $tmp -Force
+          if (-not (Test-Path 'D:\DSH\node_modules\@deepseek-ai\dsh\package.json')) {
+            Write-Error "解压后未在 D:\DSH\node_modules\@deepseek-ai\dsh 找到 package.json。请确认归档结构正确。"
+            exit 1
+          }
+
+      # v3.2.2 P0-x：`pnpm package` 流水线已经包含 `pnpm bundle:dsh`（强制步骤，
+      # 见 package.json scripts）。这里不再单独调 bundle-dsh，build & bundle 一体完成。
+      - run: pnpm package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freecoder-windows-${{ github.sha }}
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/latest.yml
+            release/win-unpacked/**
+          if-no-files-found: error
+
+      # 在 workflow_dispatch 选了「发布到 GitHub Release」时，自动把产物上传到 release。
+      # 复用主流 electron-builder GitHub release action（无需引入额外依赖，先用软发布——）
+      # tag 名采用时间戳（re-run 友好，不依赖外部 step outputs）：
+      #   freecoder-windows-YYYYMMDD-HHMMSS。仓库管理员可以在
+      #   Actions 页面把 tag push 到 GitHub Release 后用 CLI 改成规范 vX.Y.Z。
+
+      # 先取时间戳：发布 step 依赖它做 tag 名，必须排在前面。
+      - name: 取时间戳
+        id: timestamp
+        if: github.event_name == 'workflow_dispatch' && inputs.publish == true
+        shell: pwsh
+        run: |
+          $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
+          "ts=$ts" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: 发布到 GitHub Release
+        if: github.event_name == 'workflow_dispatch' && inputs.publish == true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: freecoder-windows-${{ steps.timestamp.outputs.ts }}
+          files: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

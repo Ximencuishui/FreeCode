@@ -53,6 +53,37 @@ loading（IPC 往返骨架）/ idle（休眠中）/ starting / running / stoppin
   渲染的「💤 休眠中」不一致，统一修正。
 - **7 个状态机单元测试**（`tests/unit/dsh-service.test.ts`）：守住 getState / onStateChange /
   activeManagers 生命周期 / 状态去重 / missing 文案常量复用。
+- **DSH 内置运行时漏装根因修复（构建链路 + CI 一体化）**：
+  - 背景：FreeCoder 0.1.0 ~ 0.1.5 全系列安装包均漏 `resources/dsh/`（dsh 全家桶 333.8 MB，
+    electron-builder 找不到源目录就跳过），终端用户装上看到底部状态栏 `⚠ dsh 引擎未找到`。
+    `release/win-unpacked/resources/` 验证：dsh/ 缺失，但 node/ app-runtime/ icons/ preview/ 都在。
+  - `package.json` `scripts`：原 `pnpm package` 不调 `pnpm bundle:dsh`。`build` 改为
+    `pnpm typecheck && pnpm bundle:dsh && vite build`，`package` 通过 build 间接包含 bundle
+    —— 强制保证最终安装包含 dsh 运行时。
+  - `scripts/bundle-dsh.mjs`：多候选源解析（`DSH_PACKAGE_ROOT` 环境变量 > 项目
+    `node_modules` > `G:\DSH` 兜底），全部失败时列出三个候选 + 三种解决方式后 `exit 1`，
+    而非静默继续产出无 dsh 安装包。同时把"覆盖 .gitkeep"的副作用改为"只缺失时创建"
+    避免 git status 噪声。
+  - `.github/workflows/ci.yml` 新增 `release-windows` job（windows-latest 跑
+    `pnpm package`，通过 `DSH_BUNDLE_ARCHIVE_B64` secret 注入完整 dsh bundle 归档）；支持
+    `workflow_dispatch` 手工触发 + `publish=true` 自动发 GitHub Release。
+  - `CONTRIBUTING.md` 新增「发布打包前置」一节：本地打包步骤、CI DSH bundle 三种 secret
+    替代方案（GitHub Packages / 制品库 / `actions/cache@v4`），帮助仓库管理员避 secret 64 KB
+    体积上限问题。
+
+### Fixed
+
+- **底部状态栏 API 配置文字按三态切色**（`src/renderer/App.tsx`）：原 `<footer>` 父级
+  `text-slate-400` 覆盖了内部文字色，让「已配置」「未配置」「加载中」视觉一致、无法传递
+  状态。改按 `apiKeyConfigured` 三态切 `text-emerald-600` / `text-amber-600` /
+  `text-slate-400`，跟 921 行那个圆点按钮配色一致。
+- **dsh 缺失徽章文案简化**（`src/main/dsh/service.ts`）：原文案"未检测到 DeepSeek Harness
+  （dsh）启动入口（未找到 dsh 命令，也未检测到内置运行时）"含"启动入口"/"内置运行时"两个
+  开发者黑话、连用三个否定句、对非技术用户不可读；"在系统中安装 dsh 命令"还跟产品承诺
+  "自带 dsh"矛盾。简化为「dsh 引擎未找到（请重新安装 FreeCoder）」。
+- **dsh-service 状态机测试断言同步**（`tests/unit/dsh-service.test.ts`）：`MISSING_LAUNCH_MESSAGE`
+  字面量改为 `'dsh 引擎未找到'`，匹配模式收紧到带前后单引号（避免文档注释干扰计数）。
+  42/42 单元测试通过。
 
 ## [0.1.02] - 2026-09-03
 

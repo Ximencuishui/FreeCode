@@ -1117,17 +1117,32 @@ ${steps}
         aria-label="应用状态"
       >
         <span>
-          {apiKeyConfigured === true
-            ? '● 大模型 API 已配置（本地加密存储）'
-            : apiKeyConfigured === false
-              ? '● 尚未配置大模型 API，点击右上角配置'
-              : '● 正在加载设置…'}
+          {/* v3.2.2 P0-x：底部状态栏的「大模型 API 已配置」原本是父级 footer 的 text-slate-400
+                统一灰，已配置/未配置/加载中三个状态视觉上糊成一样的灰色，无法传达"已配置"。
+                这里按 apiKeyConfigured 三态切文字色，跟上面那个圆点按钮（绿/黄/灰）一致：
+                true → emerald-600（已配置），false → amber-600（未配置，提醒行动），其余 → slate-400（加载中）。
+              DshStatusBadge 自己有 amber/blue/slate 的徽章配色，不受这里覆盖。 */}
+          <span
+            className={
+              apiKeyConfigured === true
+                ? 'text-emerald-600'
+                : apiKeyConfigured === false
+                  ? 'text-amber-600'
+                  : 'text-slate-400'
+            }
+          >
+            {apiKeyConfigured === true
+              ? '● 大模型 API 已配置（本地加密存储）'
+              : apiKeyConfigured === false
+                ? '● 尚未配置大模型 API，点击右上角配置'
+                : '● 正在加载设置…'}
+          </span>
           {/* 方案 3：dsh 实时状态徽章（来自 useDshState hook）。
                 - loading（INITIAL）灰色脉冲"dsh 状态加载中…"——IPC 往返期间的骨架态
                 - idle（常态）     灰色静态"💤 休眠中"——启动入口齐了 + 当前无任务
                 - starting/running/stopping 蓝色脉冲"dsh 任务进行中"等
                 - error           黄色"⚠ {message}"
-                - missing         黄色"⚠ {reason}"（启动入口缺失）
+                - missing         黄色"⚠ {message}（{reason}）"——启动入口缺失
               渲染规则详见 DshStatusBadge。 */}
           <DshStatusBadge state={dshState} />
         </span>

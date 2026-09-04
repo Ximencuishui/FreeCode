@@ -68,9 +68,12 @@ export interface DSHLaunchDescriptor extends DSHLaunch {
 /** Electron 主进程在打包后注入的路径（@types/node 未声明，此处显式标注） */
 type ElectronProcess = NodeJS.Process & { resourcesPath?: string };
 
-/** dsh 启动入口缺失时的统一文案。computeState 和 checkHealth 共享，避免两条 UI 文案飘。
- *  「启动入口」比「运行时」更准确——缺失的不是 dsh 进程，而是启动它所需的可执行文件。 */
-const MISSING_LAUNCH_MESSAGE = '未检测到 DeepSeek Harness（dsh）启动入口';
+/** dsh 启动入口缺失时的统一文案（徽章主消息）。
+ *  v3.2.2 P0-x：原文案「未检测到 DeepSeek Harness（dsh）启动入口」句式重复、对非技术
+ *  用户不友好。这里简化为「dsh 引擎未找到」——一眼能看出"没装"，具体解决路径放在
+ *  resolveDshLaunch() 的 description 里（徽章渲染为括号内补充说明）。
+ *  computeState() 和 checkHealth() 共享这一个常量，避免双文案飘移。 */
+const MISSING_LAUNCH_MESSAGE = 'dsh 引擎未找到';
 
 /**
  * 应用资源目录。
@@ -186,7 +189,14 @@ export function resolveDshLaunch(): DSHLaunchDescriptor {
   return {
     argv: ['dsh'],
     source: 'missing',
-    description: '未找到 dsh 命令，也未检测到内置运行时',
+    // v3.2.2 P0-x：原文案「未找到 dsh 命令，也未检测到内置运行时」同时混了
+    // 「启动入口」/「内置运行时」两个开发者术语，对非技术用户不可读。
+    // 徽章里与 MISSING_LAUNCH_MESSAGE 合成展示，这里只放解决路径。
+    // FreeCoder 承诺自带 dsh（终端用户安装包应在 resources/dsh/ 内置 dsh 运行时），
+    // 所以 missing 态的解决路径只指向"重装"——通常是安装包漏打 resources/dsh 的
+    // 不完整构建，重装最新桌面端安装包即可恢复。
+    // 不再保留「在系统中安装 dsh 命令」分支：与产品定位矛盾，且对终端用户无意义。
+    description: '请重新安装 FreeCoder',
   };
 }
 

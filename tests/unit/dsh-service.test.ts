@@ -454,8 +454,9 @@ describe('DSH 服务层', () => {
 
     it('checkHealth() 与 computeState() 的 missing 文案来源同一常量', () => {
       // 强证据：checkHealth() 的 default 分支与 computeState() 的 missing 分支都引用
-      // MISSING_LAUNCH_MESSAGE，共享字符串字面量「未检测到 DeepSeek Harness（dsh）启动入口」
-      // ——通过字符串引用计数 = 2 来证明（之前「运行时」/「启动入口」两条文案飘）。
+      // MISSING_LAUNCH_MESSAGE，共享字符串字面量「dsh 引擎未找到」
+      // ——通过字符串引用计数证明（之前「未检测到 DeepSeek Harness（dsh）启动入口」
+      // 对非技术用户晦涩，v3.2.2 P0-x 简化为「dsh 引擎未找到」）。
       const source = nodeFs.readFileSync(
         path.join(__dirname, '../../src/main/dsh/service.ts'),
         'utf-8',
@@ -465,8 +466,9 @@ describe('DSH 服务层', () => {
       expect(occurrences).toBeGreaterThanOrEqual(3);
       // 同时验证「未检测到 DeepSeek Harness（dsh）运行时」字面量已删除（审计前使用过）
       expect(source).not.toContain('未检测到 DeepSeek Harness（dsh）运行时');
-      // 统一后只剩一条文案字面量
-      const unifiedCount = (source.match(/未检测到 DeepSeek Harness（dsh）启动入口/g) ?? []).length;
+      // 统一后只剩一条文案字面量。注意用前后单引号收紧匹配，避免文档注释里
+      // 出现的同样字面量让计数变成 2（常量定义必带单引号，注释里用「」不会命中）。
+      const unifiedCount = (source.match(/'dsh 引擎未找到'/g) ?? []).length;
       expect(unifiedCount).toBe(1);
     });
   });

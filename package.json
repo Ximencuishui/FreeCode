@@ -1,6 +1,6 @@
 {
   "name": "freecoder",
-  "version": "0.1.04",
+  "version": "0.1.05",
   "description": "FreeCoder - 把想法变成可用的软件，像跟朋友聊天一样简单",
   "private": true,
   "license": "MIT",
@@ -8,7 +8,7 @@
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "node scripts/dev-runner.mjs",
-    "build": "pnpm typecheck && vite build",
+    "build": "pnpm typecheck && pnpm bundle:dsh && vite build",
     "typecheck": "tsc --noEmit -p tsconfig.main.json && tsc --noEmit -p tsconfig.renderer.json",
     "lint": "eslint .",
     "format": "prettier --write .",
