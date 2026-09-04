@@ -26,14 +26,22 @@ extraResources:
     to: preview/inspector.js
   - from: resources/app-runtime
     to: app-runtime
-  # DeepSeek Harness（dsh）CLI 运行时：先运行 `pnpm bundle:dsh`
-  # （scripts/bundle-dsh.mjs 从 DSH checkout 复制完整运行时），否则打包后 spawn dsh 会 ENOENT
-  - from: resources/dsh
-    to: dsh
+  # DSH 运行时通过 afterPack 钩子复制（见 scripts/after-pack.js）——
+  # electron-builder 26 的 extraResources 在 from 顶层恰好是 node_modules 时
+  # 会整目录静默跳过（app-builder-lib/out/util/filter.js:43-44 的
+  # "filter the root node_modules, but not a subnode_modules" 判断不区分上下文），
+  # 而 dsh 运行时恰好是 `node_modules/...`，所以这里改走 hook 兜底。
+  # - from: resources/dsh
+  #   to: dsh
   # 内置 Node 运行时：dsh headless 依赖按 Node ABI 编译的原生模块（node-pty），
   # 必须用真实 node.exe 运行（不能走 ELECTRON_RUN_AS_NODE）
   - from: resources/node
     to: node
+
+# 见 scripts/after-pack.js——在 win-unpacked 构建完成、portable/NSIS 打包前
+# 把本地 resources/dsh 同步复制到 appOutDir/resources/dsh，绕过 extraResources
+# 的"from 顶层 node_modules 整目录静默跳过"行为。
+afterPack: ./scripts/after-pack.js
 
 win:
   target:
