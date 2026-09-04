@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+AI 助理引导式需求分析多行回复（"请选择：" + A/B/C/D/E 五个选项）被解析层
+截断为单行「其他（告诉我具体是啥）」，用户看起来像 AI 没进入引导对话；
+同步修复 stderr 调试回显被混入 reply 字符串导致的聊天历史污染。
+49/49 测试套件、436/436 单元测试通过。
+
+### Fixed
+
+- **需求引导对话被截断为单行**（`src/main/dsh/service.ts`）：
+  - 根因 1：`parseDshOutput` 在无 `<<<FC_*>>>` 信封标记时走 fallback 路径
+    `extractLastReply(stdout)`，仅取最后一条非空行。227 字符的多行引导语
+    （含"请选择："+ A/B/C/D/E 五个选项）被截断成 9 字符「其他（告诉我具体是啥）」。
+    新增 `stripMarkerLines(stdout)` 工具函数（剔除空行 + `<<<FC_*>>>` marker
+    噪音行，保留完整多行），`parseDshOutput` fallback 改用之。`extractLastReply`
+    保留为独立工具函数。
+  - 根因 2：`runTask` 的 `output` 累积未区分 stdout/stderr，把 stderr 调试回显
+    （如 `[FakeDSH] profile=... task=...`）也吃进 reply 字符串并写入聊天历史。
+    改为 `if (o.stream === 'stdout') output += o.data`，stderr 仅实时转发给
+    `onProgress` 用于进度渲染，不再混入 reply。
+  - 配套：`tests/unit/dsh-service.test.ts` 取消「只取最后一行」错误预期，
+    新增 3 个守护用例（含 1 个端到端 `runTask` 需求分析多行回归）。
+  - `tests/unit/fixtures/fake-dsh.js`：`[FakeDSH] profile/task` 回显从
+    stdout 迁到 stderr，与主代码改动保持一致。
+
+### Added (UI)
+
+- **DraggableChat 顶部 resize handle**（`src/renderer/components/Chat/DraggableChat.tsx`）：
+  v0.1.07 用户请求，沿顶部 6px 边缘可上下拉伸窗口；`startDrag` 已支持
+  `'n'` 方向，与现有 nw/ne 角 handle 共享 8px 边界避免行为跳变。
+
+## [0.1.09] - 2026-09-04
+
 dsh 运行时状态机改造（方案 3 落地）。状态栏右下角徽章从「⚠ 未检测到 dsh」一档细化为 6 档：
 loading（IPC 往返骨架）/ idle（休眠中）/ starting / running / stopping / error / missing。
 所有改动向后兼容，已通过 425 个单元测试 + 新增 7 个状态机用例。
