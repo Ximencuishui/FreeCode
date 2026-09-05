@@ -52,6 +52,10 @@ win:
 nsis:
   oneClick: false
   perMachine: true
+  # 自定义 NSIS include：在 INSTFILES 页面进度条下方追加 DSH 引擎部署说明，
+  # 避免 ~245 MB 资源解压期间被误判为卡死（v0.1.11 用户反馈）。
+  # 默认路径就是 build/installer.nsh，这里显式声明便于维护者定位。
+  include: build/installer.nsh
 
 mac:
   category: public.app-category.developer-tools
