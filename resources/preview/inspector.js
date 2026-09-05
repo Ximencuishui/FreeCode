@@ -124,9 +124,10 @@ window.addEventListener('blur', () => {
 document.addEventListener('click', (e) => {
   if (!enabled) return;
   const target = e.target;
-  if (!target) return;
-  // 跳过检查器自身覆盖层
-  if (target === overlay) return;
+  if (!target || target === overlay || target === document.body || target === document.documentElement) return;
+  if (!(target instanceof Element)) return;
+  const rect = target.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
   e.preventDefault();
   e.stopPropagation();
   ipcRenderer.sendToHost('preview-element', collectElement(target));

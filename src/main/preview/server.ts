@@ -217,12 +217,17 @@ export class PreviewServer extends EventEmitter {
       throw err;
     }
 
-    // 文件变更监听（callback 版 watch，Windows 下 recursive 可用）。
-    // 项目目录通常含 node_modules/、data/ 等大量子文件，fs.watch 在 Windows 上
-    // 对递归订阅非常容易抛 EBUSY（异步）。这里注册 error 处理器吞掉瞬态 EBUSY，
-    // 避免 watcher 异常终止导致预览服务器整体崩溃或渲染器无热重载信号。
+    // 只监听可能影响预览内容的源文件，避免 node_modules、缓存与构建产物写入触发整页闪烁刷新。
+    const ignoredDirectories = new Set(['node_modules', '.git', 'dist', 'build', 'release', 'data', '.data']);
+    const watchedExtensions = new Set(['.html', '.css', '.js', '.mjs', '.cjs', '.json']);
     try {
-      this.watcher = watch(projectPath, { recursive: true }, () => {
+      this.watcher = watch(projectPath, { recursive: true }, (_eventType, filename) => {
+        const relativePath = filename ? String(filename).replaceAll('\\\\', '/') : '';
+        const parts = relativePath.split('/');
+        const extension = path.extname(relativePath).toLowerCase();
+        if (!relativePath || parts.some((part) => ignoredDirectories.has(part)) || !watchedExtensions.has(extension)) {
+          return;
+        }
         if (this.debounceTimer) clearTimeout(this.debounceTimer);
         this.debounceTimer = setTimeout(() => {
           // 后端运行时热重载（server.js 被修改时生效）

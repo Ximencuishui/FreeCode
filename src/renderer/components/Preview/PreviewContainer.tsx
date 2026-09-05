@@ -74,6 +74,8 @@ export default function PreviewContainer({
   localModeRef.current = localMode;
   /** webview 是否已完成 dom-ready（send() 在此之前调用会抛错） */
   const webviewReadyRef = useRef(false);
+  const inspectorReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inspectorReloadPendingRef = useRef(false);
   /** selectMode 的 ref，让 onWebviewLoad 回调里读到最新值（避免 useCallback 闭包过期） */
   const selectModeRef = useRef(selectMode);
   selectModeRef.current = selectMode;
@@ -121,16 +123,27 @@ export default function PreviewContainer({
    */
   useEffect(() => {
     const off = window.electron.preview.onInspectorChanged(() => {
-      const wv = webviewRef.current as unknown as { reload?: () => void } | null;
-      if (wv?.reload) {
-        console.log('[preview] inspector.js changed, reloading webview to pick up new preload');
-        wv.reload();
-      }
+      inspectorReloadPendingRef.current = true;
+      if (inspectorReloadTimerRef.current) clearTimeout(inspectorReloadTimerRef.current);
+      inspectorReloadTimerRef.current = setTimeout(() => {
+        inspectorReloadTimerRef.current = null;
+        if (!inspectorReloadPendingRef.current) return;
+        inspectorReloadPendingRef.current = false;
+        const wv = webviewRef.current as unknown as { reload?: () => void } | null;
+        if (wv?.reload) {
+          console.log('[preview] inspector.js changed, reloading webview to pick up new preload');
+          wv.reload();
+        }
+      }, 200);
     });
-    return off;
+    return () => {
+      off();
+      if (inspectorReloadTimerRef.current) clearTimeout(inspectorReloadTimerRef.current);
+    };
   }, []);
 
   const reload = () => {
+    webviewReadyRef.current = false;
     const wv = webviewRef.current as unknown as { reload: () => void } | null;
     wv?.reload();
   };
@@ -266,7 +279,9 @@ export default function PreviewContainer({
     const unsub = window.electron.preview.onStatus((e) => {
       setStatus(e.status);
       if (e.url) setUrl(e.url);
-      if (e.reload) reload();
+      if (e.reload) {
+        reload();
+      }
       if (e.status === 'error' && e.message) setError(e.message);
     });
 
