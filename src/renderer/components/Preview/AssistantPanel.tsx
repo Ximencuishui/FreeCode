@@ -547,6 +547,11 @@ function ElementTab({
   // 把"控制元素选择模式"和"展示元素信息"放在同一个上下文里，避免用户在
   // 左侧工具栏 / 右侧面板之间来回找。
   // 激活态用 brand 主色 + 强调文案，让用户一眼看到「现在是选元素模式」。
+  // 注意：toggle 按钮上没有 transition-colors。
+  // 之前测试发现 selectMode 切换瞬间，如果按钮走 150ms 颜色过渡，用户
+  // 视线落在中央预览窗口时会把余光里那块「颜色变化」误读成「预览在闪」。
+  // 状态切换由 class 替换本身就是一次渲染+绘制，比 150ms 过渡更「跟手」；
+  // hover 反馈也走瞬时变化（这是开关型按钮，不是导航项，瞬时反而清晰）。
   const toggleButton = (
     <button
       type="button"
@@ -554,7 +559,7 @@ function ElementTab({
       data-testid="fc-assistant-select-mode-toggle"
       aria-pressed={selectMode}
       title={selectMode ? '当前为选择元素模式（点击元素查看信息）' : '当前为正常测试模式（可自由点击操作）'}
-      className={`flex w-full items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors ${
+      className={`flex w-full items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium ${
         selectMode
           ? 'border-brand bg-brand text-white hover:bg-brand-hover'
           : 'border-slate-300 bg-white text-slate-700 hover:border-brand hover:bg-brand/5 hover:text-brand'
