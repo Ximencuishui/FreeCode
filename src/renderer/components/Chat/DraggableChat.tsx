@@ -637,11 +637,18 @@ export default function DraggableChat({
             className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             {/* 规范：用户/AI 统一 #14365c（中深蓝）+ 白字，避免气泡在深色背景下刺眼。
-                仅保留左右对齐区分身份，不靠颜色区分。 */}
+                仅保留左右对齐区分身份，不靠颜色区分。
+                v0.1.12 hotfix：content 为空时降级显示 reasoning 前 80 字（带 💭 标识）。
+                根因：deepseek-v4-flash 等带 reasoning 的模型可能用尽 max_tokens 给 thinking，
+                导致 content 字段为空字符串；前端浮窗之前会显示空白气泡，让用户以为 AI 没回复。
+                改为「content || reasoning 摘要 || 占位文案」三段降级，浮窗至少能看到 AI 在思考。 */}
             <div
               className="max-w-[88%] whitespace-pre-wrap rounded-lg bg-[#14365c] px-2 py-1 leading-relaxed text-white"
             >
-              {m.content}
+              {m.content ||
+                (m.reasoning
+                  ? `💭 ${m.reasoning.replace(/\n+/g, ' ').slice(0, 80)}…`
+                  : '💭 AI 正在思考…')}
             </div>
           </div>
         ))}

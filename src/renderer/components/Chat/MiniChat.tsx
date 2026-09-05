@@ -106,6 +106,10 @@ export default function MiniChat({
         )}
         {recent.map((m) => (
           <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            {/* v0.1.12 hotfix：content 为空时降级显示 reasoning 前 80 字（带 💭 标识）。
+                根因：deepseek-v4-flash 等带 reasoning 的模型可能用尽 max_tokens 给 thinking，
+                导致 content 字段为空字符串；前端浮窗之前会显示空白气泡。
+                改为「content || reasoning 摘要 || 占位文案」三段降级，浮窗至少能看到 AI 在思考。 */}
             <div
               className={`max-w-[88%] whitespace-pre-wrap rounded-lg px-2 py-1 leading-relaxed ${
                 m.role === 'user'
@@ -113,7 +117,10 @@ export default function MiniChat({
                   : 'border border-slate-200 bg-white text-slate-700'
               }`}
             >
-              {m.content}
+              {m.content ||
+                (m.reasoning
+                  ? `💭 ${m.reasoning.replace(/\n+/g, ' ').slice(0, 80)}…`
+                  : '💭 AI 正在思考…')}
             </div>
           </div>
         ))}

@@ -97,7 +97,11 @@ export async function runSkill(
   ];
 
   try {
-    const result = await llm.call({ messages, maxTokens: 800 });
+    // v0.1.12 hotfix：maxTokens 800 → 4000
+    // 根因：deepseek-v4-flash 等带 reasoning 的模型会用 800 tokens 把 reasoning_content 写满，
+    // 导致 message.content 为空字符串，前端 DraggableChat / MiniChat 浮窗只渲染 content
+    // 所以看上去 AI 没回复。提到 4000 保证 reasoning + content 都有足够预算。
+    const result = await llm.call({ messages, maxTokens: 4000 });
 
     // 4. 持久化 assistant 消息（仅在成功路径走 saveChatMessage；失败不污染历史）
     const saved = await storage.saveChatMessage(projectId, {

@@ -31,6 +31,10 @@ const ICEBREAKING_SYSTEM_PROMPT_TEMPLATE = `你是 FreeCoder 的产品需求分�
 - 选项用短语（10 字左右），不要长句
 - 避免技术术语
 
+【输出效率】
+- thinking / 内部推理阶段务必精简（≤200 tokens），不要在思考里复述 system prompt 或用户消息
+- 把 tokens 预算留给最终回复本身，确保 message.content 非空
+
 【禁止】
 - 不要输出任何 JSON
 - 不要介绍 DSH / 代码 / 文件
