@@ -201,11 +201,17 @@ export default function AssistantPanel({
     setAiChatHidden(t === 'element' && hasElement);
   };
 
+  // Tab 按钮样式：active 与 inactive 都要有清晰可见的边框 + 明显不同的底色与字色。
+  // 设计要点：
+  // - inactive 用 border-slate-300 + bg-slate-100 让"未选"视觉下沉
+  // - active 用 border-brand 2px 描边 + bg-white + text-brand 让"已选"明显凸起
+  // - 配合 gap-1.5 让相邻 Tab 之间有 6px 间距，边框不会贴边糊成一条
+  // - 三重区分（边框色 / 底色 / 字色）确保"哪个被选中"一眼可辨
   const tabClass = (t: TabKey) =>
-    `flex-1 rounded-md border py-1.5 transition-colors ${
+    `flex-1 rounded-md border-2 py-1.5 transition-colors ${
       tab === t
-        ? 'border-slate-200 bg-white text-slate-800 shadow-sm'
-        : 'border-slate-200 bg-slate-50 text-slate-500 hover:bg-white hover:text-slate-700'
+        ? 'border-brand bg-white text-brand shadow-sm'
+        : 'border-slate-300 bg-slate-100 text-slate-500 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-700'
     }`;
 
   // 进入 🔍 元素 Tab 且已选中元素时，ElementInspector 内部已自带修改指令 MiniChat，
@@ -232,7 +238,7 @@ export default function AssistantPanel({
             AI 助理
           </h3>
         </div>
-        <div className="flex gap-0.5 px-3 pb-2">
+        <div className="flex gap-1.5 px-3 pb-2">
           <button
             type="button"
             onClick={() => selectTab('progress')}
