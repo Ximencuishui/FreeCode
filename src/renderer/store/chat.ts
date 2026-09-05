@@ -219,6 +219,17 @@ interface ChatState {
   resetAutoTestPlan: () => void;
   appendDevProgress: (line: string) => void;
   clearDevProgress: () => void;
+  /**
+   * 从 localStorage 恢复指定项目的历史开发日志。
+   * 切项目时由 setProject 内部调用，让「💬 开发日志」Tab 在重新打开项目后
+   * 还能看到上一会话的 DSH 工具调用过程，而不是空白。
+   * 解析失败 / 数据为空时静默保持当前 devProgress 不变（不污染）。 */
+  loadDevProgress: (projectId: string) => void;
+  /**
+   * 把当前 devProgress 写到 localStorage（key 形如 freecoder.devProgress.{projectId}）。
+   * appendDevProgress 内部会自动调一次，调用方一般不用直接调。
+   * localStorage 抛错（隐私模式 / 容量满）时静默失败，不影响主流程。 */
+  persistDevProgress: () => void;
   pushMessage: (
     msg: Omit<ChatMessageUI, 'id' | 'timestamp'> & { id?: string; timestamp?: string },
   ) => void;
@@ -261,6 +272,47 @@ interface ChatState {
 }
 
 let msgSeq = 0;
+
+/** 开发日志持久化：localStorage key 前缀 + 完整 key 构造。
+ * 用项目 ID 分桶，互不污染；卸载 App 后仍可恢复，避免「💬 开发日志」Tab 一打开就空。 */
+const DEV_PROGRESS_STORAGE_PREFIX = 'freecoder.devProgress.';
+
+function devProgressStorageKey(projectId: string): string {
+  return `${DEV_PROGRESS_STORAGE_PREFIX}${projectId}`;
+}
+
+/** 安全从 localStorage 读取 JSON 数组。任何抛错（隐私模式 / 容量满 / JSON 损坏）都返回 null，
+ * 配合调用方"读不到就保持现状"的语义，避免一个空日志把 store 整个重置成 []。 */
+function readDevProgressFromStorage(projectId: string): string[] | null {
+  try {
+    const raw = localStorage.getItem(devProgressStorageKey(projectId));
+    if (raw === null) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    // 防御性过滤：只保留字符串项，避免历史脏数据污染
+    return parsed.filter((item): item is string => typeof item === 'string');
+  } catch {
+    return null;
+  }
+}
+
+/** 安全写入 localStorage。抛错时静默失败（开发日志丢一条不能阻塞整个 DSH 流）。 */
+function writeDevProgressToStorage(projectId: string, lines: string[]): void {
+  try {
+    localStorage.setItem(devProgressStorageKey(projectId), JSON.stringify(lines));
+  } catch {
+    /* 隐私模式 / 容量满：忽略，下一轮 append 会再试 */
+  }
+}
+
+/** 安全删除 localStorage 条目。 */
+function removeDevProgressFromStorage(projectId: string): void {
+  try {
+    localStorage.removeItem(devProgressStorageKey(projectId));
+  } catch {
+    /* 忽略 */
+  }
+}
 
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
@@ -326,6 +378,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // 被带入新项目（验收报告 P2-1：UI store 缺少项目维度的草稿隔离）。
     // chatDraft 设计为同一项目内跨视图共享（chat ↔ preview），不应跨项目残留。
     useUiStore.getState().clearChatDraft();
+    // 切到新项目后立刻从 localStorage 恢复「💬 开发日志」Tab 的历史内容。
+    // 必须放在 set({...}) 之后（devProgress 先被清到 []），再异步覆盖，
+    // 这样用户切回项目时，开发日志 Tab 不会立刻显示"暂无开发记录"。
+    // 读不到 / 解析失败时静默保留 []（与 setProject 测试期望保持一致）。
+    if (id) get().loadDevProgress(id);
   },
   setRequirements: (req) => set({ requirements: req }),
   setProjectStatus: (status) => set({ projectStatus: status }),
@@ -378,9 +435,39 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // 失败计数永远停在 1，无法触发 3 次上限（v0.1.02 P0-3 实测坑）。
       // success 分支已在 useChatEvents 的 'message' 回调里显式调 resetAutoTestRetry。
     }),
-  appendDevProgress: (line) =>
-    set((s) => ({ devProgress: [...s.devProgress.slice(-40), line] })),
-  clearDevProgress: () => set({ devProgress: [] }),
+  appendDevProgress: (line) => {
+    // 追加一条 + 自动持久化到 localStorage。
+    // 注意：appendDevProgress 内部已经会切到 slice(-40)，持久化时也按这个长度写，
+    // 保证 store 与 localStorage 长度一致，下次启动不会出现"内存比持久化多很多"的回填截断。
+    const nextLines = (() => {
+      const cur = get().devProgress;
+      const next = [...cur.slice(-40), line];
+      return next.length > 40 ? next.slice(-40) : next;
+    })();
+    set({ devProgress: nextLines });
+    // 持久化失败时静默，不影响开发日志实时显示。
+    const pid = get().currentProjectId;
+    if (pid) writeDevProgressToStorage(pid, nextLines);
+  },
+  clearDevProgress: () => {
+    set({ devProgress: [] });
+    // 同时清掉当前项目在 localStorage 里的日志条目，避免下次 loadDevProgress 又回填。
+    const pid = get().currentProjectId;
+    if (pid) removeDevProgressFromStorage(pid);
+  },
+  loadDevProgress: (projectId) => {
+    if (!projectId) return;
+    const restored = readDevProgressFromStorage(projectId);
+    if (restored === null) return;
+    // 截到与 appendDevProgress 同步的最大长度（40），避免历史脏数据一次性塞太多。
+    const trimmed = restored.length > 40 ? restored.slice(-40) : restored;
+    set({ devProgress: trimmed });
+  },
+  persistDevProgress: () => {
+    const pid = get().currentProjectId;
+    if (!pid) return;
+    writeDevProgressToStorage(pid, get().devProgress);
+  },
 
   pushMessage: (msg) => {
     // v3.2.1 P2-15：去重 + 限流。

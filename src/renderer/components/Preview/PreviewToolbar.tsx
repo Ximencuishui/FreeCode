@@ -3,9 +3,6 @@ import type { PreviewStatus } from '@shared/types/preview';
 interface PreviewToolbarProps {
   url: string | null;
   status: PreviewStatus;
-  /** 元素选择模式（开：悬停高亮+点击识别；关：正常交互测试） */
-  selectMode: boolean;
-  onToggleSelect: () => void;
   onRefresh: () => void;
   onOpenExternal: () => void;
   /** 当前项目是否本地模式（authentication === 'none'）；
@@ -17,12 +14,12 @@ interface PreviewToolbarProps {
   onConvertToLocalMode?: () => void;
 }
 
-/** 预览工具栏：刷新 / 用浏览器打开并测试 / 元素选择开关 */
+/** 预览工具栏：刷新 / 用浏览器打开并测试。
+ * 注意：元素选择开关（🎯 选择元素）已迁到右侧 AI 助理面板的「🔍 元素」Tab 顶部，
+ * 这里只保留预览生命周期相关的操作，避免工具栏挤占关键控件的视觉权重。 */
 export default function PreviewToolbar({
   url,
   status,
-  selectMode,
-  onToggleSelect,
   onRefresh,
   onOpenExternal,
   localMode,
@@ -35,18 +32,6 @@ export default function PreviewToolbar({
         {status === 'running' ? '🟢 预览运行中' : status === 'starting' ? '🟡 启动中…' : '⚪ 未启动'}
       </span>
       <span className="min-w-0 flex-1 truncate text-xs text-slate-500">{url ?? '—'}</span>
-      <button
-        type="button"
-        onClick={onToggleSelect}
-        title={selectMode ? '当前为选择元素模式（点击元素查看信息）' : '当前为正常测试模式（可自由点击操作）'}
-        className={`rounded-md border px-2 py-1 text-xs transition-colors ${
-          selectMode
-            ? 'border-brand bg-brand/5 text-brand'
-            : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100'
-        }`}
-      >
-        🎯 选择元素 {selectMode ? '开' : '关'}
-      </button>
       <button
         type="button"
         onClick={onRefresh}

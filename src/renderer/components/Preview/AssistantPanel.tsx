@@ -79,6 +79,14 @@ interface AssistantPanelProps {
   autoTestRetryCount?: number;
   /** v3.2.1 P2-12：测试 overtime 时卡片的"立即中断"按钮回调；不传则不渲染该按钮 */
   onStopAutoTest?: () => void;
+  /**
+   * 元素选择模式（开：悬停高亮+点击识别；关：正常交互测试）。
+   * 由 App.tsx 维护，AssistantPanel 仅消费 + 把它放在「🔍 元素」Tab 顶部开关上。
+   * PreviewContainer 也消费同一个值（用来同步给 webview 与渲染顶部提示横幅），
+   * 所以统一由 App.tsx 持有是符合"唯一真源"原则的。 */
+  selectMode?: boolean;
+  /** 切换元素选择模式（开关按钮触发）。 */
+  onToggleSelect?: () => void;
   /** 外部覆盖样式：用于把父容器的可拖动宽度（width）应用到根 aside */
   style?: CSSProperties;
   /** 外部追加 className：一般不需要，但预留口子方便父级布局定制 */
@@ -125,6 +133,10 @@ export default function AssistantPanel({
   autoTestRetryCount = 0,
   /** v3.2.1 P2-12：测试 overtime 时卡片的"立即中断"按钮回调；不传则不渲染该按钮 */
   onStopAutoTest,
+  /** 元素选择模式 + 切换回调：从 App.tsx 注入到「🔍 元素」Tab 顶部开关。
+   * 默认值 false / 空函数，避免 AssistantPanel 单独被复用时没有 App 注入也能渲染。 */
+  selectMode = false,
+  onToggleSelect = () => undefined,
   style,
   className = '',
 }: AssistantPanelProps) {
@@ -190,10 +202,10 @@ export default function AssistantPanel({
   };
 
   const tabClass = (t: TabKey) =>
-    `flex-1 rounded-md py-1.5 transition-colors ${
+    `flex-1 rounded-md border py-1.5 transition-colors ${
       tab === t
-        ? 'bg-white text-slate-800 shadow-sm'
-        : 'text-slate-500 hover:text-slate-700'
+        ? 'border-slate-200 bg-white text-slate-800 shadow-sm'
+        : 'border-slate-200 bg-slate-50 text-slate-500 hover:bg-white hover:text-slate-700'
     }`;
 
   // 进入 🔍 元素 Tab 且已选中元素时，ElementInspector 内部已自带修改指令 MiniChat，
@@ -293,6 +305,8 @@ export default function AssistantPanel({
             elementInfo={elementInfo}
             isProcessing={isProcessing}
             onSendModify={onSendModify}
+            selectMode={selectMode}
+            onToggleSelect={onToggleSelect}
           />
         )}
         {tab === 'devlog' && <DevLog lines={devProgress} />}
@@ -510,28 +524,67 @@ function ElementTab({
   elementInfo,
   isProcessing,
   onSendModify,
+  selectMode,
+  onToggleSelect,
 }: {
   selectedElement: ElementInfo | null;
   elementInfo: ElementSelectResult['elementInfo'] | null;
   isProcessing: boolean;
   onSendModify?: (instruction: string) => void;
+  /** 元素选择模式：从 App 透传过来。元素 Tab 顶部开关的视觉态据此切换。 */
+  selectMode: boolean;
+  /** 切换回调：开关按钮触发。App 通过 setSelectMode 维护 selectMode 唯一真源。 */
+  onToggleSelect: () => void;
 }) {
+  // 顶部开关：开始选择元素 ↔ 关闭选择元素。
+  // 该开关取代了原来 PreviewToolbar 上的"🎯 选择元素 开/关"按钮（已删除），
+  // 把"控制元素选择模式"和"展示元素信息"放在同一个上下文里，避免用户在
+  // 左侧工具栏 / 右侧面板之间来回找。
+  // 激活态用 brand 主色 + 强调文案，让用户一眼看到「现在是选元素模式」。
+  const toggleButton = (
+    <button
+      type="button"
+      onClick={onToggleSelect}
+      data-testid="fc-assistant-select-mode-toggle"
+      aria-pressed={selectMode}
+      title={selectMode ? '当前为选择元素模式（点击元素查看信息）' : '当前为正常测试模式（可自由点击操作）'}
+      className={`flex w-full items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors ${
+        selectMode
+          ? 'border-brand bg-brand text-white hover:bg-brand-hover'
+          : 'border-slate-300 bg-white text-slate-700 hover:border-brand hover:bg-brand/5 hover:text-brand'
+      }`}
+    >
+      <span aria-hidden="true">🎯</span>
+      <span>{selectMode ? '关闭选择元素' : '开始选择元素'}</span>
+    </button>
+  );
+
   if (!selectedElement || !elementInfo) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-xs text-slate-400">
-        🔍 元素信息
-        <br />
-        <span className="mt-1 block">在预览中点击任意元素（先开启 🎯 选择元素）</span>
+      <div className="space-y-3">
+        {toggleButton}
+        <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-xs text-slate-400">
+          🔍 元素信息
+          <br />
+          <span className="mt-1 block">
+            {selectMode
+              ? '在画布上点击任意组件查看信息'
+              : '点上方按钮开启选择元素'}
+          </span>
+        </div>
       </div>
     );
   }
   return (
-    <ElementInspector
-      element={selectedElement}
-      info={elementInfo}
-      isProcessing={isProcessing}
-      onSendModify={(instruction) => onSendModify?.(instruction)}
-    />
+    <div className="space-y-3">
+      {toggleButton}
+      <ElementInspector
+        element={selectedElement}
+        info={elementInfo}
+        isProcessing={isProcessing}
+        onSendModify={(instruction) => onSendModify?.(instruction)}
+      />
+    </div>
   );
 }
 

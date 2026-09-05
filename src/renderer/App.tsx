@@ -96,6 +96,13 @@ export default function App() {
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   // v3.2.2 P0-5：记住上一个 currentProjectId，effect 里用它调 cancelActiveTasks
   const prevProjectIdRef = useRef<string | null>(null);
+  /**
+   * 元素选择模式（selectMode）：由 App 统一持有，作为唯一真源。
+   * - PreviewContainer 通过 selectMode 同步给 webview 的 inspector.js（关掉预览可正常点击测试）
+   * - AssistantPanel 通过 selectMode 渲染「🔍 元素」Tab 顶部的开关按钮
+   * 切项目时重置为 false（避免旧项目的选择模式污染新项目 webview 的初始态）。
+   */
+  const [selectMode, setSelectMode] = useState(false);
 
   /** 写入宽度：clamp 后同步到 localStorage */
   const setRightWidth = useCallback((w: number) => {
@@ -181,8 +188,10 @@ export default function App() {
   //   用 useRef 记录 prev projectId；只有从 A → B 才需要取消 A，避免首屏 / 刷新时无意义的 IPC。
   //   三个 cancel（dev / export / package）由 store 内部并发 + allSettled，
   //   单个失败不影响其他，也不阻塞切项目流程（主进程各 cancel 通道返回快，~ms 级）。
+  // 同时重置 selectMode：避免上一个项目残留的"选元素模式"在新项目 webview 里持续生效。
   useEffect(() => {
     setSelectedDocumentPath(null);
+    setSelectMode(false);
     const prev = prevProjectIdRef.current;
     if (prev && prev !== currentProjectId) {
       void useChatStore.getState().cancelActiveTasks(prev);
@@ -1005,7 +1014,10 @@ ${steps}
               onOpenDeployFromMilestone={() => setView('deploy')}
             />
           ) : currentView === 'preview' ? (
-            <PreviewContainer />
+            <PreviewContainer
+              selectMode={selectMode}
+              onExitSelectMode={() => setSelectMode(false)}
+            />
           ) : currentView === 'documents' ? (
             <DocumentViewer
               key={`${currentProjectId}:${selectedDocumentPath ?? 'empty'}`}
@@ -1097,6 +1109,9 @@ ${steps}
               autoTestRetryCount={autoTestRetryCount}
               // v3.2.1 P2-12：overtime 时允许用户在 AutoTestPlanCard 内手动中断，避免仅依赖 InterruptBanner
               onStopAutoTest={handleStopAutoTest}
+              // 元素选择模式：开关放在「🔍 元素」Tab 顶部，与右侧面板共享同一份 selectMode 状态
+              selectMode={selectMode}
+              onToggleSelect={() => setSelectMode((v) => !v)}
             />,
             'AI 助理面板',
             <span className="flex items-center gap-1.5">

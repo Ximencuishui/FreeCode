@@ -32,8 +32,25 @@ async function probeBackend(baseUrl: string): Promise<string | null> {
   }
 }
 
-/** 预览视图：内嵌 WebView 显示生成的应用，支持元素悬停识别（前端设计说明书 3.3） */
-export default function PreviewContainer() {
+/** 预览视图：内嵌 WebView 显示生成的应用，支持元素悬停识别（前端设计说明书 3.3）
+ *
+ * 元素选择模式（selectMode）由父组件（App.tsx）维护，因为这个开关的 UI 现在
+ * 放在右侧 AI 助理面板的「🔍 元素」Tab 顶部，而不是预览工具栏里——
+ * App.tsx 是唯一同时持有「预览 webview（在这里）」与「右侧 AI 助理面板」的地方。
+ * PreviewContainer 只负责接收 selectMode 状态、把它同步给 webview IPC，
+ * 以及渲染顶部那条「元素选择模式已开启」的紫色横幅（给用户提供视觉反馈）。 */
+interface PreviewContainerProps {
+  /** 元素选择模式（开：悬停高亮+点击识别；关：正常交互测试）。
+   * 由 App 维护，PreviewContainer 仅消费。 */
+  selectMode: boolean;
+  /** 关闭选择模式的回调（横幅上的「✕ 退出」按钮）。App 通过 setSelectMode(false) 实现。 */
+  onExitSelectMode: () => void;
+}
+
+export default function PreviewContainer({
+  selectMode,
+  onExitSelectMode,
+}: PreviewContainerProps) {
   const currentProjectId = useProjectStore((s) => s.currentProjectId);
   /** 当前项目是否本地模式（authentication === 'none'）。本地模式无登录后端运行时，
    *  不探测 /api/health，也不展示「应用后端不可用」提示。 */
@@ -44,7 +61,6 @@ export default function PreviewContainer() {
   const [error, setError] = useState('');
   /** 本地模式无后端运行时，该状态永远为 null，保持探测 API 完整以便未来扩展 */
   const [backendError, setBackendError] = useState<string | null>(null);
-  const [selectMode, setSelectMode] = useState(false);
   const webviewRef = useRef<HTMLElement | null>(null);
   /** 重试计数：+1 触发重新 start（stop → start） */
   const [restartKey, setRestartKey] = useState(0);
@@ -58,6 +74,9 @@ export default function PreviewContainer() {
   localModeRef.current = localMode;
   /** webview 是否已完成 dom-ready（send() 在此之前调用会抛错） */
   const webviewReadyRef = useRef(false);
+  /** selectMode 的 ref，让 onWebviewLoad 回调里读到最新值（避免 useCallback 闭包过期） */
+  const selectModeRef = useRef(selectMode);
+  selectModeRef.current = selectMode;
 
   // 元素选择模式开关 → 通知 webview 检查器（关掉后预览可正常点击测试）。
   // 注意：webview 的 preload (inspector.js) 在 webview 加载完成前不会注册 IPC 监听器，
@@ -69,12 +88,13 @@ export default function PreviewContainer() {
     wv?.send?.('preview-mode', selectMode ? 'select' : 'normal');
   }, [selectMode, url]);
 
-  /** webview 完成加载后再次同步当前 selectMode（确保 preload 已注册 IPC 后收到指令）） */
+  /** webview 完成加载后再次同步当前 selectMode（确保 preload 已注册 IPC 后收到指令））。
+   * 用 selectModeRef 读最新值，避免 onWebviewLoad 闭包过期。 */
   const onWebviewLoad = useCallback(() => {
     webviewReadyRef.current = true;
     const wv = webviewRef.current as unknown as { send?: (ch: string, ...args: unknown[]) => void } | null;
-    wv?.send?.('preview-mode', selectMode ? 'select' : 'normal');
-  }, [selectMode]);
+    wv?.send?.('preview-mode', selectModeRef.current ? 'select' : 'normal');
+  }, []);
 
   // 注册 webview did-finish-load 监听器（每次 webview 加载完成时把当前 selectMode 同步过去）
   useEffect(() => {
@@ -291,8 +311,6 @@ export default function PreviewContainer() {
       <PreviewToolbar
         url={url}
         status={status}
-        selectMode={selectMode}
-        onToggleSelect={() => setSelectMode((v) => !v)}
         onRefresh={reload}
         onOpenExternal={openExternal}
         localMode={localMode}
@@ -317,7 +335,7 @@ export default function PreviewContainer() {
           <span className="hidden text-brand/80 sm:inline">在画布上点一下任意组件查看信息</span>
           <button
             type="button"
-            onClick={() => setSelectMode(false)}
+            onClick={onExitSelectMode}
             className="shrink-0 rounded-md border border-brand/30 bg-white px-2 py-0.5 font-medium text-brand transition-colors hover:bg-brand/5"
             title="退出选择模式，恢复正常测试"
           >
