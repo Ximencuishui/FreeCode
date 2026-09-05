@@ -1,11 +1,13 @@
 import { BrowserWindow, app, shell } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
 import { IpcChannels } from '../../shared/types/ipc';
 import type {
   PreviewStartParams,
   PreviewStartResult,
   PreviewStopResult,
   PreviewStatusEvent,
+  PreviewInspectorChangedEvent,
   ElementSelectParams,
   ElementSelectResult,
   PreviewRefreshResult,
@@ -24,12 +26,68 @@ function broadcastStatus(status: PreviewStatusEvent): void {
   }
 }
 
+/** dev 模式专用：向所有窗口广播 inspector.js 变更事件 */
+function broadcastInspectorChanged(event: PreviewInspectorChangedEvent): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(IpcChannels.previewInspectorChanged, event);
+  }
+}
+
+/**
+ * dev 模式专用：watch resources/preview/inspector.js 文件变更，
+ * 文件被改 → 广播 preview:inspector-changed → 渲染端 webview.reload() 拉取最新 preload。
+ * Vite HMR 只能感知 src/ 内的渲染层代码，webview preload 在 src/ 之外且由 webview 启动时一次性加载，
+ * 不监听的话开发体验会断裂（用户改了 preload 不知道要点刷新）。
+ *
+ * 注意：生产打包后 inspector.js 被固化为只读资源，不再监听。
+ */
+let inspectorWatcher: fs.FSWatcher | null = null;
+let inspectorWatchDebounce: NodeJS.Timeout | null = null;
+function startInspectorWatcher(): void {
+  if (inspectorWatcher) return;
+  if (app.isPackaged) return;
+  const inspectorFile = getInspectorPath();
+  try {
+    const stat = fs.statSync(inspectorFile);
+    let lastMtimeMs = stat.mtimeMs;
+    inspectorWatcher = fs.watch(inspectorFile, () => {
+      // 编辑器原子保存（写 .tmp → rename）可能触发多次 change，去抖后只取最新一次
+      if (inspectorWatchDebounce) clearTimeout(inspectorWatchDebounce);
+      inspectorWatchDebounce = setTimeout(() => {
+        try {
+          const next = fs.statSync(inspectorFile);
+          if (next.mtimeMs === lastMtimeMs) return;
+          lastMtimeMs = next.mtimeMs;
+          console.log(
+            `[preview] inspector.js changed (mtime=${next.mtimeMs}), broadcasting reload hint`,
+          );
+          broadcastInspectorChanged({
+            mtimeMs: next.mtimeMs,
+            inspectorPath: inspectorFile,
+          });
+        } catch (err) {
+          console.warn('[preview] inspector watcher stat failed:', err);
+        }
+      }, 80);
+    });
+    inspectorWatcher.on('error', (err) => {
+      console.warn('[preview] inspector watcher error:', err);
+    });
+    console.log('[preview] inspector watcher started:', inspectorFile);
+  } catch (err) {
+    console.warn('[preview] inspector watcher start failed:', err);
+  }
+}
+
 /**
  * 预览域 IPC（API 文档 4.2），基于本地预览服务器实现。
  * 元素选中（悬停识别）在 WP-15 落地。
  */
 export function registerPreviewIpc(storage: StorageManager): void {
   const server = new PreviewServer();
+
+  // dev 模式：监听 inspector.js 文件变更，触发渲染端 webview 重载
+  startInspectorWatcher();
 
   // 文件变更 → 热加载通知
   server.on('file-change', () => {

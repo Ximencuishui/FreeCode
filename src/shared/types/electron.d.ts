@@ -96,6 +96,12 @@ declare global {
         openExternal: () => Promise<PreviewOpenExternalResult>;
         onStatus: (callback: (data: PreviewStatusEvent) => void) => Unsubscribe;
         selectElement: (params: ElementSelectParams) => Promise<ElementSelectResult>;
+        /**
+         * 订阅 resources/preview/inspector.js 文件变更事件（仅 dev 模式会触发）。
+         * 收到事件时渲染端应 webview.reload()，让 webview preload 重新加载最新代码，
+         * 避免 HMR 不感知 webview preload 导致老代码残留。
+         */
+        onInspectorChanged: (callback: (data: PreviewInspectorChangedEvent) => void) => Unsubscribe;
       };
       project: {
         list: () => Promise<ProjectListResult>;

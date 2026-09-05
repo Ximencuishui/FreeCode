@@ -112,6 +112,24 @@ export default function PreviewContainer({
     };
   }, [url, onWebviewLoad]);
 
+  /**
+   * dev 模式专用：监听 resources/preview/inspector.js 文件变更事件。
+   * Vite HMR 不会感知 webview preload 的修改，所以主进程 watch 文件 →
+   * 广播 preview:inspector-changed → 这里 webview.reload() 让 webview 重新加载最新 preload。
+   * 不监听的话改了 inspector.js 不会自动生效（老代码残留导致闪烁等 bug 难以排查）。
+   * 生产构建（app.isPackaged=true）下主进程不会发送此事件，订阅本身无副作用。
+   */
+  useEffect(() => {
+    const off = window.electron.preview.onInspectorChanged(() => {
+      const wv = webviewRef.current as unknown as { reload?: () => void } | null;
+      if (wv?.reload) {
+        console.log('[preview] inspector.js changed, reloading webview to pick up new preload');
+        wv.reload();
+      }
+    });
+    return off;
+  }, []);
+
   const reload = () => {
     const wv = webviewRef.current as unknown as { reload: () => void } | null;
     wv?.reload();

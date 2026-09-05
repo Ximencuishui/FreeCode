@@ -30,6 +30,9 @@ const electronApi: Window['electron'] = {
     openExternal: () => ipcRenderer.invoke(IpcChannels.previewOpenExternal),
     onStatus: (callback) => subscribe(IpcChannels.previewStatus, callback),
     selectElement: (params) => ipcRenderer.invoke(IpcChannels.previewElement, params),
+    // dev 模式专用：inspector.js 文件变更后让渲染端主动 webview.reload()
+    onInspectorChanged: (callback) =>
+      subscribe(IpcChannels.previewInspectorChanged, callback),
   },
   project: {
     list: () => ipcRenderer.invoke(IpcChannels.projectList),

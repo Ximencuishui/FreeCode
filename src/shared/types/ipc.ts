@@ -17,6 +17,12 @@ export const IpcChannels = {
   previewElement: 'preview:element',
   previewRefresh: 'preview:refresh',
   previewOpenExternal: 'preview:open-external',
+  /**
+   * 开发模式专用：resources/preview/inspector.js 文件被修改后，主进程会广播此事件。
+   * 渲染端收到后应主动 webview.reload()，让 webview 重新加载最新的 preload 脚本。
+   * 生产构建（app.isPackaged=true）下不会触发。
+   */
+  previewInspectorChanged: 'preview:inspector-changed',
   // 项目
   projectList: 'project:list',
   projectCreate: 'project:create',

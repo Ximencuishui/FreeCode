@@ -28,6 +28,14 @@ export interface PreviewStatusEvent {
   reload?: boolean;
 }
 
+/** dev 模式专用：resources/preview/inspector.js 文件被修改后主进程广播的事件 */
+export interface PreviewInspectorChangedEvent {
+  /** inspector.js 文件的最新 mtime（ms） */
+  mtimeMs: number;
+  /** 文件路径，方便调试 */
+  inspectorPath: string;
+}
+
 export interface ElementInfo {
   tag: string;
   id?: string;
