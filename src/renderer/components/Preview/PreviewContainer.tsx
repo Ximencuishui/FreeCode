@@ -81,12 +81,13 @@ export default function PreviewContainer({
   // 元素选择模式开关 → 通知 webview 检查器（关掉后预览可正常点击测试）。
   // 注意：webview 的 preload (inspector.js) 在 webview 加载完成前不会注册 IPC 监听器，
   // 直接 send 会丢消息（且未 dom-ready 时调用 send() 会抛错打断渲染）。每次
-  // webview 完成加载后也要重发一次当前状态。
+  // webview 完成加载后也要重发一次当前状态（onWebviewLoad 在 did-finish-load 时做）。
+  // 这里只依赖 selectMode，不再带 url：避免 onStatus 事件带 url 时无意义地重复发送。
   useEffect(() => {
     if (!webviewReadyRef.current) return;
     const wv = webviewRef.current as unknown as { send?: (ch: string, ...args: unknown[]) => void } | null;
     wv?.send?.('preview-mode', selectMode ? 'select' : 'normal');
-  }, [selectMode, url]);
+  }, [selectMode]);
 
   /** webview 完成加载后再次同步当前 selectMode（确保 preload 已注册 IPC 后收到指令））。
    * 用 selectModeRef 读最新值，避免 onWebviewLoad 闭包过期。 */
@@ -317,32 +318,8 @@ export default function PreviewContainer({
         converting={converting}
         onConvertToLocalMode={convertToLocalMode}
       />
-      {/* 修复 P1-6：元素选择模式提示横幅。进入 selectMode 后在预览顶部显示一条
-          高对比度的固定横幅，告诉用户「现在是选元素模式，在画布点一下任意组件」；
-          之前只有工具栏按钮高亮，没有全画布视觉信号，用户不知道发生了什么，
-          容易以为应用出 bug。横幅上同时提供「退出」快捷入口，避免用户忘掉模式状态。 */}
-      {selectMode && (
-        <div
-          className="flex shrink-0 items-center gap-2 border-b border-brand/30 bg-brand/10 px-3 py-1.5 text-xs text-brand"
-          data-testid="fc-preview-select-mode-banner"
-          role="status"
-          aria-live="polite"
-        >
-          <span aria-hidden="true">🎯</span>
-          <span className="min-w-0 flex-1 truncate font-medium text-brand">
-            元素选择模式已开启
-          </span>
-          <span className="hidden text-brand/80 sm:inline">在画布上点一下任意组件查看信息</span>
-          <button
-            type="button"
-            onClick={onExitSelectMode}
-            className="shrink-0 rounded-md border border-brand/30 bg-white px-2 py-0.5 font-medium text-brand transition-colors hover:bg-brand/5"
-            title="退出选择模式，恢复正常测试"
-          >
-            ✕ 退出
-          </button>
-        </div>
-      )}
+      {/* 修复 P1-7：元素选择模式提示横幅已搬到下方 webview 容器内做 absolute 叠层，
+          避免 toggle 时让外层 flex-col 高度变化、webview 重排。 */}
       {/* 转本地模式出错时提示（仅登录模式可能出现） */}
       {convertError && !localMode && (
         // v3.2.1 P3-5：错误提示加「重试」按钮，避免用户只能关闭应用或重启项目
@@ -376,7 +353,7 @@ export default function PreviewContainer({
           </button>
         </div>
       )}
-      <div className="flex-1 overflow-hidden">
+      <div className="relative flex-1 overflow-hidden">
         {/* v3.2.1 P2-12：后端探测失败时不渲染旧 webview（用户可能看到登录失败/白屏），
             改为显示 skeleton + retry。骨架用 amber 提示色呼应顶部 banner，让用户清楚是后端问题。
             顶部 backendError banner 与底部 skeleton 联动：retry 按钮触发 checkBackend()，
@@ -484,6 +461,30 @@ export default function PreviewContainer({
                 )}
               </>
             )}
+          </div>
+        )}
+        {/* 修复 P1-7：元素选择模式提示横幅搬到 webview 容器内做 absolute 叠层，
+            不参与外层 flex-col 布局 → toggle 时 webview 尺寸永远稳定。 */}
+        {selectMode && (
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center gap-2 border-b border-brand/30 bg-brand/10 px-3 py-1.5 text-xs text-brand"
+            data-testid="fc-preview-select-mode-banner"
+            role="status"
+            aria-live="polite"
+          >
+            <span aria-hidden="true">🎯</span>
+            <span className="min-w-0 flex-1 truncate font-medium text-brand">
+              元素选择模式已开启
+            </span>
+            <span className="hidden text-brand/80 sm:inline">在画布上点一下任意组件查看信息</span>
+            <button
+              type="button"
+              onClick={onExitSelectMode}
+              className="pointer-events-auto shrink-0 rounded-md border border-brand/30 bg-white px-2 py-0.5 font-medium text-brand transition-colors hover:bg-brand/5"
+              title="退出选择模式，恢复正常测试"
+            >
+              ✕ 退出
+            </button>
           </div>
         )}
       </div>

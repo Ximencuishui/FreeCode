@@ -10,11 +10,17 @@ const { ipcRenderer } = require('electron');
 let overlay = null;
 /** 元素选择模式：默认关闭（正常交互测试）；宿主可切换为 select（悬停高亮+点击识别） */
 let enabled = false;
+/** 当前高亮的元素。mouseover 仅在 target 变化时刷新 overlay，
+ *  避免鼠标在子元素间快速移动时 overlay 反复淡出/淡入造成的闪烁 */
+let lastTarget = null;
 
 // 宿主通过 webview.send('preview-mode', mode) 切换模式
 ipcRenderer.on('preview-mode', (_event, mode) => {
   enabled = mode !== 'normal';
-  if (!enabled) clearHighlight();
+  if (!enabled) {
+    lastTarget = null;
+    clearHighlight();
+  }
 });
 
 function ensureOverlay() {
@@ -28,7 +34,11 @@ function ensureOverlay() {
     'background:rgba(74,144,217,0.15)',
     'border-radius:4px',
     'display:none',
-    'transition:all 0.08s ease',
+    // 修复 P1-7：去掉 transition:all 0.08s。
+    // 原逻辑在 mouseout 立即清 overlay，鼠标移动到子元素时反复淡出/淡入，
+    // 在大元素上会让肉眼误以为"预览窗口闪烁"。
+    // 现在 mouseover 仅在 target 变化时刷新，position 是离散赋值，transition 反而是噪音。
+    'transition:none',
   ].join(';');
   document.documentElement.appendChild(overlay);
   return overlay;
@@ -90,14 +100,26 @@ document.addEventListener('mouseover', (e) => {
   if (!enabled) return;
   const target = e.target;
   if (!target || target === document.body || target === document.documentElement) return;
+  // 修复 P1-7：只在 target 变化时刷新 overlay。
+  // 鼠标在子元素间快速移动时，原逻辑每次都调用 highlight(target)，
+  // 配合 80ms transition 让 overlay 反复淡出/淡入，看起来像闪烁。
+  if (target === lastTarget) return;
+  lastTarget = target;
   highlight(target);
 }, true);
 
-document.addEventListener('mouseout', (e) => {
-  if (!enabled) return;
-  if (e.target === overlay || !overlay) return;
+// 修复 P1-7：删除原来的 mouseout 监听。
+// 原逻辑每次鼠标离开元素都 clearHighlight()，配合 mouseover 重显，
+// 是「鼠标移动 → overlay 闪烁」的根因。
+// 现在只在「鼠标离开整个页面」或「窗口失焦」时清空：
+window.addEventListener('mouseleave', () => {
+  lastTarget = null;
   clearHighlight();
-}, true);
+});
+window.addEventListener('blur', () => {
+  lastTarget = null;
+  clearHighlight();
+});
 
 document.addEventListener('click', (e) => {
   if (!enabled) return;
