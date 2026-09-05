@@ -2,6 +2,36 @@
 import { create } from 'zustand';
 
 /**
+ * P0 建议 3：全局轻量通知（用于「应用已就绪，可以部署了」等边沿事件）。
+ *
+ * 设计取舍：
+ *   - 数组而非单值：多个事件同时触发不互相覆盖；host 组件按入队顺序渲染。
+ *   - 不接第三方 toast 库：项目依赖极简（grep react-hot-toast/sonner/notistack 全空），
+ *     自渲染右下角浮层 + setTimeout 自动消失，足够支撑「边沿事件反馈」一类场景。
+ *   - id 由 pushNotification 生成（Date.now() + 随机后缀），保证 React key 稳定；
+ *     同一文本重复 push 也会产生不同 id，不会被去重拦截（去重交给调用方决定）。
+ *   - 持久化交给 NotificationHost 内部的 setTimeout，不污染 store：
+ *     切项目 / 路由刷新时未消失的通知会被 React 卸载，不影响主流程。
+ */
+export type NotificationKind = 'success' | 'info' | 'warning';
+
+export interface NotificationAction {
+  label: string;
+  onClick: () => void;
+}
+
+export interface NotificationItem {
+  id: string;
+  kind: NotificationKind;
+  icon?: string;
+  message: string;
+  action?: NotificationAction;
+  /** 自动消失毫秒数；0 或 undefined 表示不自动消失（必须用户手动 dismiss） */
+  autoDismissMs?: number;
+  createdAt: number;
+}
+
+/**
  * 主工作区视图枚举。
  * v3.2.2 P0-1 重构：'deploy' 从原来的「弹窗」改为「持久化视图」，
  * 与 chat / preview / documents 平等出现在 header 切换 Tab 上；
@@ -39,6 +69,15 @@ interface UiState {
   chatDraft: string;
   setChatDraft: (v: string) => void;
   clearChatDraft: () => void;
+  /**
+   * P0 建议 3：全局通知队列。NotificationHost 在 App.tsx 顶层订阅并渲染。
+   * pushNotification 自动追加并返回 id（方便调用方后续 dismiss）；
+   * dismissNotification 移除指定 id；dismissAll 清空（切项目时调用）。
+   */
+  notifications: NotificationItem[];
+  pushNotification: (input: Omit<NotificationItem, 'id' | 'createdAt'>) => string;
+  dismissNotification: (id: string) => void;
+  dismissAllNotifications: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -56,4 +95,16 @@ export const useUiStore = create<UiState>((set) => ({
   chatDraft: '',
   setChatDraft: (v) => set({ chatDraft: v }),
   clearChatDraft: () => set({ chatDraft: '' }),
+  notifications: [],
+  pushNotification: (input) => {
+    // id 用时间戳 + 随机后缀保证唯一（同一毫秒内多次 push 也不会冲突）
+    const id = `n-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    set((state) => ({
+      notifications: [...state.notifications, { ...input, id, createdAt: Date.now() }],
+    }));
+    return id;
+  },
+  dismissNotification: (id) =>
+    set((state) => ({ notifications: state.notifications.filter((n) => n.id !== id) })),
+  dismissAllNotifications: () => set({ notifications: [] }),
 }));

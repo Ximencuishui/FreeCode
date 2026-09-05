@@ -6,6 +6,7 @@ import { useUiStore } from '../../store/ui';
 import DeployConfigWizard from './DeployConfigWizard';
 import { createDefaultDeployConfig } from '@shared/types/export';
 import type { DeployConfig } from '@shared/types/export';
+import { useDeploymentReadiness } from '../../hooks/useDeploymentReadiness';
 import DeploymentAssistant from './DeploymentAssistant';
 import MilestoneCard from './MilestoneCard';
 import type { PackageCompleteEvent, PackageProgressEvent } from '@shared/types/package';
@@ -107,7 +108,8 @@ export default function DeployView() {
   const setView = useUiStore((s) => s.setView);
   const currentProjectId = useProjectStore((s) => s.currentProjectId);
   const projects = useProjectStore((s) => s.projects);
-  const projectStatus = useChatStore((s) => s.projectStatus);
+  // P2 建议 2：projectStatus / zipPath 不再在视图层直接读取，统一由
+  // useDeploymentReadiness hook 聚合消费；此处不再解构，保持关注点分离。
   const lastTestReport = useChatStore((s) => s.lastTestReport);
   const autoTestLastSummary = useChatStore((s) => s.autoTestLastSummary);
   const devProgress = useChatStore((s) => s.devProgress);
@@ -160,12 +162,14 @@ export default function DeployView() {
   // v0.1.02 P3-5：canDeploy / canQuickStart / canPackage 三个分支保持原语义：
   // - canDeploy：developing / ready / exported 都能进入（draft / planned 拦截）；
   // - canQuickStart / canPackage：只允许 ready / exported（必须先完成自动开发）。
-  const canDeploy =
-    projectStatus === 'developing' ||
-    projectStatus === 'ready' ||
-    projectStatus === 'exported';
-  const canQuickStart = projectStatus === 'ready' || projectStatus === 'exported';
-  const canPackage = projectStatus === 'ready' || projectStatus === 'exported';
+  // P2 建议 2：判断逻辑下沉到 useDeploymentReadiness hook，canEnterDeploy 即原 canDeploy
+  // （用 alias 保持外部调用点零修改；新引入的 canShowGuide / canShowAdvanced / blockers /
+  // recommendation 留待后续 PR 在视图与助手中消费）。
+  const {
+    canEnterDeploy: canDeploy,
+    canQuickStart,
+    canPackage,
+  } = useDeploymentReadiness();
   const currentProject = projects.find((p) => p.id === currentProjectId);
 
   /** 🎯 一键启动：复用 preview server，零门槛跑起来 */

@@ -21,6 +21,8 @@ import { useUiStore } from './store/ui';
 import { useExportStore, handleExportComplete } from './store/export';
 import { useChatEvents } from './hooks/useChatEvents';
 import { useDshState } from './hooks/useDshState';
+import { useDeploymentReadyToast } from './hooks/useDeploymentReadyToast';
+import NotificationHost from './components/common/NotificationHost';
 import type { AppInfo } from '@shared/types/app';
 import type { AppSettings, SettingsGetResult } from '@shared/types/settings';
 import type {
@@ -189,12 +191,15 @@ export default function App() {
   //   三个 cancel（dev / export / package）由 store 内部并发 + allSettled，
   //   单个失败不影响其他，也不阻塞切项目流程（主进程各 cancel 通道返回快，~ms 级）。
   // 同时重置 selectMode：避免上一个项目残留的"选元素模式"在新项目 webview 里持续生效。
+  // P0 审计修复：切项目时调 dismissAllNotifications —— NotificationHost 在 App 顶层挂载不卸载，
+  // 旧通知（如「A 项目已就绪」）会跨项目残留，action.onClick 还会跳到 B 项目的部署视图。
   useEffect(() => {
     setSelectedDocumentPath(null);
     setSelectMode(false);
     const prev = prevProjectIdRef.current;
     if (prev && prev !== currentProjectId) {
       void useChatStore.getState().cancelActiveTasks(prev);
+      useUiStore.getState().dismissAllNotifications();
     }
     prevProjectIdRef.current = currentProjectId;
   }, [currentProjectId]);
@@ -265,6 +270,9 @@ export default function App() {
   // 「🚀 部署」Tab 现在是持久化视图，与 chat / preview / documents 平等；
   // 跳转通过 setView('deploy') 完成，不依赖 store 副作用。
   useChatEvents();
+  // P0 建议 3：监听 projectStatus 从 developing → ready/exported 的边沿，
+  // 通过 ui store push 一条全局通知。详见 useDeploymentReadyToast 注释。
+  useDeploymentReadyToast();
 
   // 离开预览元素检查器后恢复 AI 浮窗，避免切换到文档工作区时被旧状态隐藏
   // v0.1.02 P0-1：useLayoutEffect 在浏览器绘制前同步执行，避免切视图瞬间浮窗延迟出现。
@@ -864,6 +872,9 @@ ${steps}
 
   return (
     <div className="flex h-screen flex-col bg-white text-slate-800">
+      {/* P0 建议 3：全局通知宿主，挂一次即可；内部订阅 useUiStore.notifications，
+          按入队顺序渲染右下角浮层。位置独立 fixed，不影响布局。 */}
+      <NotificationHost />
       {/* 标题栏：左 = 品牌区，中 = 视图 Tab，右 = API 状态 + 设置 */}
       <header className="flex h-12 shrink-0 items-center border-b border-slate-200 px-4">
         {/* 左侧：Logo / 标题 / 版本号 / 项目切换 */}

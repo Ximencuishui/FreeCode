@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChatStore } from '../../store/chat';
-import { useExportStore } from '../../store/export';
+import { useDeploymentReadiness } from '../../hooks/useDeploymentReadiness';
 
 /**
  * AI 部署助手（v3.2，PRD 2.4.4）。
@@ -145,7 +145,9 @@ export default function DeploymentAssistant({ onClose, onSuccess }: DeploymentAs
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const pushMessage = useChatStore((s) => s.pushMessage);
   const cleanMessagesBySession = useChatStore((s) => s.cleanMessagesBySession);
-  const zipPath = useExportStore((s) => s.zipPath);
+  // P2 建议 2：识别态、兜底态的"该说什么"统一从 readiness 聚合层取，
+  // 不再各自拼 zipPath 二态文案，避免与 DeployView 判断逻辑漂移。
+  const { recommendation, blockers, zipPath } = useDeploymentReadiness();
   const greetedRef = useRef(false);
   // v3.2.1 P2-18：为本助手实例生成 sessionId，所有推送的助手消息都会带 metadata.sessionId，
   // 切换项目时 App.tsx 调 cleanMessagesBySession({ channel: 'deploy-assistant' }) 清理，
@@ -360,11 +362,24 @@ export default function DeploymentAssistant({ onClose, onSuccess }: DeploymentAs
           {mode === 'identify' && (
             <>
               <div className="font-medium text-slate-700">🧭 我正在分析…</div>
-              <div className="mt-1">
-                {zipPath
-                  ? `已检测到部署包：${zipPath.split(/[/\\]/).pop()}。建议新手用「Docker」，会运维用「服务器」，想偷懒用「云平台」。`
-                  : '尚未导出部署包。请先在「⚙️ 高级导出」走完 5 步向导；或者选「一键启动」先在本地跑起来。'}
-              </div>
+              {/*
+                P2 建议 2：识别态不再只看 zipPath 二态，而是消费 readiness 的
+                recommendation + blockers。blocker 非空时显式列出"为什么不让我部署"，
+                与文件头注释（v3.2：基于项目状态给出真实判断）对齐。
+              */}
+              <div className="mt-1">{recommendation.text}</div>
+              {zipPath && (
+                <div className="mt-1 text-[11px] text-slate-500">
+                  已检测到部署包：{zipPath.split(/[/\\]/).pop()}。下面三种目标按你熟悉程度选。
+                </div>
+              )}
+              {blockers.length > 0 && (
+                <ul className="mt-2 list-disc space-y-0.5 pl-4 text-[11px] text-amber-700">
+                  {blockers.map((b) => (
+                    <li key={b.kind}>{b.message}</li>
+                  ))}
+                </ul>
+              )}
             </>
           )}
           {mode === 'guide' && (
